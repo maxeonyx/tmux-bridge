@@ -1,19 +1,61 @@
 #!/usr/bin/env fish
 #
-# pty-send: Send a command to the PTY bridge session
+# pty-send: Send commands to the PTY bridge session
 #
-# Usage: pty-send [flags] -- command [args...]
+# COMMAND MODE (default):
+#   pty-send [flags] -- command [args...]
+#   Runs a shell command and captures stdout/stderr/exit status.
 #
-# Flags:
-#   --timeout N    No-output timeout in seconds (default: 10)
-#   --max-time N   Overall timeout in seconds (default: 120)
+# REPL MODE:
+#   pty-send --repl-start CMD --prompt REGEX [--eval-template TPL]
+#   pty-send --repl-eval EXPR
+#   pty-send --repl-close
+#
+#   Start a REPL, send expressions, and close it. Supports nesting.
+#
+# FLAGS:
+#   --timeout N      No-output timeout in seconds (default: 10)
+#   --max-time N     Overall timeout in seconds (default: 120)
+#   --help           Show this help
+#
+# REPL FLAGS:
+#   --repl-start CMD      Start REPL with given command
+#   --prompt REGEX        Regex to detect REPL prompt (required with --repl-start)
+#   --eval-template TPL   Template for wrapping expressions (optional)
+#                         Use {expr} as placeholder. Use {id} for unique marker ID.
+#                         Default: just sends expression directly
+#   --repl-eval EXPR      Send expression to current REPL
+#   --repl-close          Close current REPL (sends Ctrl-D)
+#
+# EXAMPLES:
+#   # Command mode
+#   pty-send -- ls -la
+#   pty-send --timeout 30 -- make build
+#
+#   # Python REPL
+#   pty-send --repl-start python3 --prompt "^>>> |^\.\.\. " \
+#     --eval-template 'print("___START_{id}___"); {expr}; print("___END_{id}___")'
+#   pty-send --repl-eval "1 + 1"
+#   pty-send --repl-close
+#
+#   # Nix REPL
+#   pty-send --repl-start "nix repl" --prompt "^nix-repl> "
+#   pty-send --repl-eval "1 + 1"
+#   pty-send --repl-close
 
-set -l session_name "pty-bridge-$USER"
-set -l runtime_dir /tmp/pty-bridge-$USER
+set -g session_name "pty-bridge-$USER"
+set -g runtime_dir /tmp/pty-bridge-$USER
 
-# Default timeouts
-set -l no_output_timeout 10
-set -l max_time 120
+# Default timeouts (global so functions can access them)
+set -g no_output_timeout 10
+set -g max_time 120
+
+# REPL mode variables
+set -l mode command  # command, repl-start, repl-eval, repl-close
+set -l repl_cmd ""
+set -l repl_prompt ""
+set -l repl_eval_template ""
+set -l repl_expr ""
 
 # Parse arguments
 set -l args
@@ -31,13 +73,25 @@ while test $i -le (count $argv)
             case --max-time
                 set i (math $i + 1)
                 set max_time $argv[$i]
+            case --repl-start
+                set mode repl-start
+                set i (math $i + 1)
+                set repl_cmd $argv[$i]
+            case --prompt
+                set i (math $i + 1)
+                set repl_prompt $argv[$i]
+            case --eval-template
+                set i (math $i + 1)
+                set repl_eval_template $argv[$i]
+            case --repl-eval
+                set mode repl-eval
+                set i (math $i + 1)
+                set repl_expr $argv[$i]
+            case --repl-close
+                set mode repl-close
             case --help
-                echo "Usage: pty-send [flags] -- command [args...]"
-                echo ""
-                echo "Flags:"
-                echo "  --timeout N    No-output timeout in seconds (default: 10)"
-                echo "  --max-time N   Overall timeout in seconds (default: 120)"
-                echo "  --help         Show this help"
+                # Print header comment as help
+                head -45 (status filename) | tail -43 | string replace -r '^# ?' ''
                 exit 0
             case --
                 set parsing_flags false
@@ -53,10 +107,26 @@ while test $i -le (count $argv)
     set i (math $i + 1)
 end
 
-# Check if we have a command
-if test (count $args) -eq 0
+# Validation
+if test "$mode" = command -a (count $args) -eq 0
     echo "Usage: pty-send [flags] -- command [args...]" >&2
+    echo "       pty-send --repl-start CMD --prompt REGEX" >&2
+    echo "       pty-send --repl-eval EXPR" >&2
+    echo "       pty-send --repl-close" >&2
+    echo "" >&2
+    echo "Run 'pty-send --help' for details." >&2
     exit 1
+end
+
+if test "$mode" = repl-start
+    if test -z "$repl_cmd"
+        echo "Error: --repl-start requires a command" >&2
+        exit 1
+    end
+    if test -z "$repl_prompt"
+        echo "Error: --repl-start requires --prompt REGEX" >&2
+        exit 1
+    end
 end
 
 # Check if session exists
@@ -74,33 +144,320 @@ if not tmux has-session -t $session_name 2>/dev/null
     exit 1
 end
 
-# Generate unique ID for this command (simple numeric, no special chars)
+mkdir -p $runtime_dir
+
+#------------------------------------------------------------------------------
+# REPL State Management
+#------------------------------------------------------------------------------
+
+set -g repl_depth_file $runtime_dir/repl.depth
+
+function get_repl_depth
+    if test -f $repl_depth_file
+        cat $repl_depth_file
+    else
+        echo 0
+    end
+end
+
+function get_repl_config
+    set -l depth (get_repl_depth)
+    if test $depth -eq 0
+        return 1
+    end
+    set -l config_file $runtime_dir/repl.(math $depth - 1)
+    if test -f $config_file
+        cat $config_file
+        return 0
+    end
+    return 1
+end
+
+function push_repl_config --argument-names prompt eval_template
+    set -l depth (get_repl_depth)
+    set -l config_file $runtime_dir/repl.$depth
+    echo "prompt=$prompt" > $config_file
+    echo "eval_template=$eval_template" >> $config_file
+    echo (math $depth + 1) > $repl_depth_file
+end
+
+function pop_repl_config
+    set -l depth (get_repl_depth)
+    if test $depth -eq 0
+        return 1
+    end
+    set -l new_depth (math $depth - 1)
+    rm -f $runtime_dir/repl.$new_depth
+    if test $new_depth -eq 0
+        rm -f $repl_depth_file
+    else
+        echo $new_depth > $repl_depth_file
+    end
+end
+
+function read_repl_config
+    set -l config (get_repl_config)
+    or return 1
+    for line in (string split \n -- $config)
+        if string match -q "prompt=*" -- $line
+            set -g current_repl_prompt (string replace "prompt=" "" -- $line)
+        else if string match -q "eval_template=*" -- $line
+            set -g current_repl_eval_template (string replace "eval_template=" "" -- $line)
+        end
+    end
+end
+
+#------------------------------------------------------------------------------
+# Wait for prompt (used by REPL mode)
+#------------------------------------------------------------------------------
+
+function wait_for_prompt --argument-names prompt_regex
+    set -l start_time (date +%s)
+    set -l last_output_time $start_time
+    set -l last_content ""
+    
+    while true
+        set -l content (tmux capture-pane -t $session_name -p -S -50)
+        
+        if test "$content" != "$last_content"
+            set last_output_time (date +%s)
+            set last_content $content
+        end
+        
+        # Find last non-empty line and check if it matches prompt
+        set -l lines (string split \n -- $content)
+        for i in (seq (count $lines) -1 1)
+            set -l line $lines[$i]
+            if test -n "$line"
+                if string match -rq -- $prompt_regex $line
+                    return 0
+                end
+                # Found non-empty line but it didn't match - keep waiting
+                break
+            end
+        end
+        
+        # Check timeouts
+        set -l now (date +%s)
+        if test (math $now - $last_output_time) -ge $no_output_timeout
+            echo "Error: Timed out waiting for REPL prompt (no output for $no_output_timeout seconds)." >&2
+            return 124
+        end
+        if test (math $now - $start_time) -ge $max_time
+            echo "Error: Timed out waiting for REPL prompt (exceeded $max_time seconds)." >&2
+            return 124
+        end
+        
+        sleep 0.1
+    end
+end
+
+#------------------------------------------------------------------------------
+# REPL Mode: Start
+#------------------------------------------------------------------------------
+
+if test "$mode" = repl-start
+    echo "[pty-send] Starting REPL: $repl_cmd" >&2
+    
+    # Send the command to start the REPL
+    tmux send-keys -t $session_name C-u
+    sleep 0.1
+    tmux send-keys -t $session_name "$repl_cmd" Enter
+    
+    # Wait for the REPL prompt
+    if not wait_for_prompt $repl_prompt
+        echo "Error: REPL did not show expected prompt." >&2
+        echo "Expected prompt matching: $repl_prompt" >&2
+        exit 1
+    end
+    
+    # Save REPL config
+    push_repl_config $repl_prompt $repl_eval_template
+    
+    echo "[pty-send] REPL ready (depth: "(get_repl_depth)")" >&2
+    exit 0
+end
+
+#------------------------------------------------------------------------------
+# REPL Mode: Close
+#------------------------------------------------------------------------------
+
+if test "$mode" = repl-close
+    set -l depth (get_repl_depth)
+    if test $depth -eq 0
+        echo "Error: No REPL session to close." >&2
+        exit 1
+    end
+    
+    echo "[pty-send] Closing REPL (depth: $depth)" >&2
+    
+    # Send Ctrl-D to exit the REPL
+    tmux send-keys -t $session_name C-d
+    sleep 0.3
+    
+    # Pop the config
+    pop_repl_config
+    
+    # If there's a parent REPL, wait for its prompt
+    if test (get_repl_depth) -gt 0
+        read_repl_config
+        wait_for_prompt $current_repl_prompt
+    end
+    
+    exit 0
+end
+
+#------------------------------------------------------------------------------
+# REPL Mode: Eval
+#------------------------------------------------------------------------------
+
+if test "$mode" = repl-eval
+    if not read_repl_config
+        echo "Error: No REPL session. Use --repl-start first." >&2
+        exit 1
+    end
+    
+    set -l expr_id (random)(random)
+    set -l start_marker "___REPL_START_"$expr_id"___"
+    set -l end_marker "___REPL_END_"$expr_id"___"
+    
+    # Build the expression to send
+    set -l expr_to_send $repl_expr
+    if test -n "$current_repl_eval_template"
+        # Replace {expr} and {id} in template
+        set expr_to_send (string replace -a "{expr}" "$repl_expr" -- $current_repl_eval_template)
+        set expr_to_send (string replace -a "{id}" "$expr_id" -- $expr_to_send)
+        set start_marker "___REPL_START_"$expr_id"___"
+        set end_marker "___REPL_END_"$expr_id"___"
+    else
+        # No template - we'll detect output between prompts
+        set start_marker ""
+        set end_marker ""
+    end
+    
+    # Clear line and send expression
+    tmux send-keys -t $session_name C-u
+    sleep 0.1
+    tmux send-keys -t $session_name "$expr_to_send" Enter
+    
+    # Wait for output and next prompt
+    set -l start_time (date +%s)
+    set -l last_output_time $start_time
+    set -l last_content ""
+    
+    while true
+        set -l content (tmux capture-pane -t $session_name -p -S -50)
+        
+        if test "$content" != "$last_content"
+            set last_output_time (date +%s)
+            set last_content $content
+        end
+        
+        # If we have markers, look for them
+        if test -n "$start_marker" -a -n "$end_marker"
+            if string match -q "*$end_marker*" -- $content
+                # Extract output between markers
+                set -l in_output false
+                set -l output_lines
+                
+                for line in (string split \n -- $content)
+                    if string match -q "*$start_marker*" -- $line
+                        set in_output true
+                        continue
+                    end
+                    if string match -q "*$end_marker*" -- $line
+                        break
+                    end
+                    if test "$in_output" = true
+                        set output_lines $output_lines $line
+                    end
+                end
+                
+                # Output result
+                for line in $output_lines
+                    echo $line
+                end
+                exit 0
+            end
+        else
+            # No markers - wait for prompt and extract output between command echo and prompt
+            # Find the LAST occurrence of the expression (the one we just typed) and look after it
+            set -l all_lines (string split \n -- $content)
+            set -l expr_line_idx 0
+            
+            # Search from end to find the last line containing our expression
+            for i in (seq (count $all_lines) -1 1)
+                if string match -q "*$repl_expr*" -- $all_lines[$i]
+                    set expr_line_idx $i
+                    break
+                end
+            end
+            
+            if test $expr_line_idx -gt 0
+                set -l output_lines
+                
+                # Look at lines after the expression
+                for i in (seq (math $expr_line_idx + 1) (count $all_lines))
+                    set -l line $all_lines[$i]
+                    
+                    # Check if this line is a prompt
+                    if string match -rq -- $current_repl_prompt $line
+                        # Found prompt - output what we collected
+                        for out_line in $output_lines
+                            echo $out_line
+                        end
+                        exit 0
+                    end
+                    
+                    # Collect output (skip empty lines at start)
+                    if test -n "$line" -o (count $output_lines) -gt 0
+                        set output_lines $output_lines $line
+                    end
+                end
+            end
+        end
+        
+        # Check timeouts
+        set -l now (date +%s)
+        if test (math $now - $last_output_time) -ge $no_output_timeout
+            echo "Error: REPL eval timed out (no output for $no_output_timeout seconds)." >&2
+            exit 124
+        end
+        if test (math $now - $start_time) -ge $max_time
+            echo "Error: REPL eval timed out (exceeded $max_time seconds)." >&2
+            exit 124
+        end
+        
+        sleep 0.1
+    end
+end
+
+#------------------------------------------------------------------------------
+# Command Mode (original behavior)
+#------------------------------------------------------------------------------
+
+# Generate unique ID for this command
 set -l cmd_id (random)(random)
 set -l start_marker "___PTYSEND_START_"$cmd_id"___"
 set -l end_marker "___PTYSEND_END_"$cmd_id"_"
 
 # Create stderr capture file
-mkdir -p $runtime_dir
 set -l stderr_file $runtime_dir/stderr.$cmd_id
 
 # Build the command string by properly escaping for the shell
-# We use printf %q to escape each argument
 set -l escaped_args
 for arg in $args
     set -a escaped_args (printf '%s' $arg | string escape)
 end
 set -l cmd_string (string join ' ' -- $escaped_args)
 
-# Write the command to a temp script file to avoid line-wrapping issues
-# when the command is long and gets split across terminal lines
+# Write command to temp script file to avoid line-wrapping issues
 set -l cmd_file $runtime_dir/cmd.$cmd_id
 
 # Detect the shell running in the tmux session
-# Use pane_current_command which shows the foreground process (handles bash inside fish)
 set -l shell_name (tmux display-message -t $session_name -p '#{pane_current_command}')
 
-# Generate shell-appropriate script
-# Fish uses $status, bash/POSIX use $?
+# Generate shell-appropriate script (fish uses $status, bash uses $?)
 if test "$shell_name" = fish
     set cmd_file "$cmd_file.fish"
     echo "echo '[pty-send] $cmd_string'
@@ -115,16 +472,12 @@ $cmd_string 2>$stderr_file
 echo $end_marker\$?" > $cmd_file
 end
 
-# Ensure file is fully written before we try to source it
 sync
 
-# The wrapper just sources the file - everything is visible in the file itself
-# Use '.' instead of 'source' for POSIX compatibility
+# Source the script file
 set -l wrapped_cmd ". $cmd_file"
 
 # Send the command to tmux
-# First, clear any pending input on the line (Ctrl-U clears line in bash/readline)
-# We avoid C-c as it can cause issues with some shells
 tmux send-keys -t $session_name C-u
 sleep 0.1
 tmux send-keys -t $session_name "$wrapped_cmd" Enter
@@ -135,44 +488,31 @@ set -l last_output_time $start_time
 set -l last_content ""
 
 while true
-    # Capture pane content
     set -l content (tmux capture-pane -t $session_name -p -S -1000)
     
-    # Check if output changed (for no-output timeout)
     if test "$content" != "$last_content"
         set last_output_time (date +%s)
         set last_content $content
     end
     
-    # Check for end marker (just the prefix, exit status follows)
-    # The end marker line looks like: ___PTYSEND_END_12345_0
-    # We need to find it as its own line (the echo output), not as part of the command
+    # Check for end marker
     if string match -q "*$end_marker*" -- $content
-        # Found the end marker somewhere, now parse carefully
         set -l in_output false
         set -l output_lines
         set -l exit_status 0
         set -l found_end false
         
         for line in (string split \n -- $content)
-            # Skip empty lines at the start
             if test -z "$line" -a "$in_output" = false
                 continue
             end
             
-            # Look for start marker as the ENTIRE line (echoed output)
-            # This distinguishes from the command line which has more text
             if test "$line" = "$start_marker"
                 set in_output true
                 continue
             end
             
-            # Look for end marker ANYWHERE in line
-            # The echoed line is: ___PTYSEND_END_12345_N where N is exit status
-            # But user typing might appear after it on the same line
             if string match -q "*$end_marker*" -- $line
-                # Extract exit status using regex
-                # Match the marker followed by digits
                 set -l match (string match -r "___PTYSEND_END_"$cmd_id"_(\d+)" -- $line)
                 if test (count $match) -ge 2
                     set exit_status $match[2]
@@ -186,22 +526,17 @@ while true
             end
         end
         
-        # Only output if we found both markers properly
         if test "$found_end" = true
-            # Output stdout
             for line in $output_lines
                 echo $line
             end
             
-            # Output stderr
             if test -f $stderr_file
                 cat $stderr_file >&2
                 rm -f $stderr_file
             end
             
-            # Cleanup command file
             rm -f $cmd_file
-            
             exit $exit_status
         end
     end
@@ -210,20 +545,10 @@ while true
     set -l now (date +%s)
     set -l idle_time (math $now - $last_output_time)
     if test $idle_time -ge $no_output_timeout
-        # Trigger two-phase kill
         echo "Error: Command timed out (no output for $no_output_timeout seconds)." >&2
-        echo "" >&2
-        echo "The command produced no output for $no_output_timeout seconds and was terminated." >&2
-        echo "Use --timeout N to increase the no-output timeout." >&2
-        
-        # Phase 1: SIGINT
         tmux send-keys -t $session_name C-c
         sleep 3
-        
-        # Phase 2: SIGQUIT if still running
         tmux send-keys -t $session_name C-\\
-        
-        # Cleanup
         rm -f $stderr_file $cmd_file
         exit 124
     end
@@ -232,22 +557,12 @@ while true
     set -l elapsed (math $now - $start_time)
     if test $elapsed -ge $max_time
         echo "Error: Command timed out (exceeded $max_time seconds total)." >&2
-        echo "" >&2
-        echo "The command exceeded the maximum allowed runtime and was terminated." >&2
-        echo "Use --max-time N to increase the overall timeout." >&2
-        
-        # Phase 1: SIGINT
         tmux send-keys -t $session_name C-c
         sleep 3
-        
-        # Phase 2: SIGQUIT
         tmux send-keys -t $session_name C-\\
-        
-        # Cleanup
         rm -f $stderr_file $cmd_file
         exit 124
     end
     
-    # Small sleep to avoid busy loop
     sleep 0.1
 end
