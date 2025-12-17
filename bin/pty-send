@@ -292,15 +292,16 @@ if test "$mode" = repl-start
     if not wait_for_prompt $repl_prompt
         echo "Error: REPL did not show expected prompt." >&2
         echo "" >&2
-        echo "The REPL was started but pty-send couldn't detect the prompt." >&2
-        echo "Expected prompt matching regex: $repl_prompt" >&2
+        echo "The REPL command was sent but the expected prompt was not detected." >&2
+        echo "Expected prompt regex: $repl_prompt" >&2
         echo "" >&2
-        echo "Possible causes:" >&2
-        echo "  - The prompt regex doesn't match the actual REPL prompt" >&2
-        echo "  - The REPL is slow to start (try --timeout N with a larger value)" >&2
-        echo "  - The REPL printed an error or is waiting for input" >&2
+        echo "Try these fixes first:" >&2
+        echo "  1. Increase timeout: --timeout 30" >&2
+        echo "  2. Simplify the regex (e.g., \"^>>>\" instead of \"^>>> \")" >&2
+        echo "  3. Use --repl-close to clean up, then try again" >&2
         echo "" >&2
-        echo "Check the pty-bridge terminal to see what the REPL is showing." >&2
+        echo "If the problem persists, ask the user to check the pty-bridge terminal" >&2
+        echo "and describe what they see (error message, unexpected prompt, etc.)." >&2
         exit 1
     end
     
@@ -320,11 +321,13 @@ if test "$mode" = repl-close
     if test $depth -eq 0
         echo "Error: No REPL session to close." >&2
         echo "" >&2
-        echo "There is no active REPL session. You need to start one first:" >&2
-        echo "  pty-send --repl-start python3 --prompt \"^>>>\"" >&2
+        echo "pty-send has no record of an active REPL session." >&2
         echo "" >&2
-        echo "Or if you expected a REPL to be running, it may have exited unexpectedly." >&2
-        echo "Check the pty-bridge terminal to see the current state." >&2
+        echo "If the REPL exited unexpectedly, the terminal may still be in a usable state." >&2
+        echo "Try running a command to verify: pty-send -- echo hello" >&2
+        echo "" >&2
+        echo "To start a fresh REPL session:" >&2
+        echo "  pty-send --repl-start python3 --prompt \"^>>>\"" >&2
         exit 1
     end
     
@@ -471,20 +474,21 @@ if test "$mode" = repl-eval
         if test (math $now - $last_output_time) -ge $no_output_timeout
             echo "Error: REPL eval timed out (no output for $no_output_timeout seconds)." >&2
             echo "" >&2
-            echo "The REPL did not produce output or return to its prompt." >&2
+            echo "The REPL did not return to its prompt after the expression was sent." >&2
             echo "" >&2
-            echo "Possible causes:" >&2
-            echo "  - The expression is taking a long time to evaluate" >&2
-            echo "  - The REPL is waiting for more input (multi-line expression?)" >&2
-            echo "  - The REPL crashed or exited" >&2
+            echo "Try these fixes:" >&2
+            echo "  1. For slow operations, increase timeout: --timeout 30" >&2
+            echo "  2. If the expression was incomplete (multi-line), send remaining input" >&2
+            echo "  3. Close and restart the REPL: pty-send --repl-close" >&2
             echo "" >&2
-            echo "Check the pty-bridge terminal. Use --timeout N for slower operations." >&2
+            echo "If the problem persists, ask the user to check the pty-bridge terminal" >&2
+            echo "and describe what the REPL is showing." >&2
             exit 124
         end
         if test (math $now - $start_time) -ge $max_time
             echo "Error: REPL eval timed out (exceeded $max_time seconds)." >&2
             echo "" >&2
-            echo "Use --max-time N to allow longer-running evaluations." >&2
+            echo "The expression took too long. Use --max-time N for longer operations." >&2
             exit 124
         end
         
@@ -606,6 +610,11 @@ while true
     set -l idle_time (math $now - $last_output_time)
     if test $idle_time -ge $no_output_timeout
         echo "Error: Command timed out (no output for $no_output_timeout seconds)." >&2
+        echo "" >&2
+        echo "The command was terminated. For slow commands, use --timeout N." >&2
+        echo "" >&2
+        echo "If the command is waiting for input (password, confirmation), ask the" >&2
+        echo "user to check the pty-bridge terminal and provide the required input." >&2
         tmux send-keys -t $session_name C-c
         sleep 3
         tmux send-keys -t $session_name C-\\
@@ -617,6 +626,8 @@ while true
     set -l elapsed (math $now - $start_time)
     if test $elapsed -ge $max_time
         echo "Error: Command timed out (exceeded $max_time seconds total)." >&2
+        echo "" >&2
+        echo "The command was terminated. Use --max-time N for longer operations." >&2
         tmux send-keys -t $session_name C-c
         sleep 3
         tmux send-keys -t $session_name C-\\
