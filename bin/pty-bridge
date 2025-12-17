@@ -1,0 +1,25 @@
+#!/usr/bin/env fish
+#
+# pty-bridge: Start or attach to the shared PTY bridge session
+#
+# The human runs this to create an interactive terminal that AI agents
+# can send commands to via pty-send.
+
+set -l session_name "pty-bridge-$USER"
+set -l runtime_dir /tmp/pty-bridge-$USER
+
+# Ensure runtime directory exists
+mkdir -p $runtime_dir
+chmod 700 $runtime_dir
+
+# Check if session already exists
+if tmux has-session -t $session_name 2>/dev/null
+    # Session exists, attach to it
+    exec tmux attach-session -t $session_name
+else
+    # Create new session and attach
+    # destroy-unattached ensures session dies when last client detaches
+    tmux new-session -s $session_name \; \
+        set-option destroy-unattached on \; \
+        set-option history-limit 50000
+end

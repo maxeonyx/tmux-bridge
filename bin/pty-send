@@ -1,0 +1,225 @@
+#!/usr/bin/env fish
+#
+# pty-send: Send a command to the PTY bridge session
+#
+# Usage: pty-send [flags] -- command [args...]
+#
+# Flags:
+#   --timeout N    No-output timeout in seconds (default: 10)
+#   --max-time N   Overall timeout in seconds (default: 120)
+
+set -l session_name "pty-bridge-$USER"
+set -l runtime_dir /tmp/pty-bridge-$USER
+
+# Default timeouts
+set -l no_output_timeout 10
+set -l max_time 120
+
+# Parse arguments
+set -l args
+set -l parsing_flags true
+
+set -l i 1
+while test $i -le (count $argv)
+    set -l arg $argv[$i]
+    
+    if test "$parsing_flags" = true
+        switch $arg
+            case --timeout
+                set i (math $i + 1)
+                set no_output_timeout $argv[$i]
+            case --max-time
+                set i (math $i + 1)
+                set max_time $argv[$i]
+            case --help
+                echo "Usage: pty-send [flags] -- command [args...]"
+                echo ""
+                echo "Flags:"
+                echo "  --timeout N    No-output timeout in seconds (default: 10)"
+                echo "  --max-time N   Overall timeout in seconds (default: 120)"
+                echo "  --help         Show this help"
+                exit 0
+            case --
+                set parsing_flags false
+            case '*'
+                # Unknown flag or start of command without --
+                set parsing_flags false
+                set args $args $arg
+        end
+    else
+        set args $args $arg
+    end
+    
+    set i (math $i + 1)
+end
+
+# Check if we have a command
+if test (count $args) -eq 0
+    echo "Usage: pty-send [flags] -- command [args...]" >&2
+    exit 1
+end
+
+# Check if session exists
+if not tmux has-session -t $session_name 2>/dev/null
+    echo "Error: No PTY bridge session is running." >&2
+    echo "" >&2
+    echo "You have used \`pty-send\`, but it currently has nowhere to send to." >&2
+    echo "" >&2
+    echo "The user needs to start the interactive backing terminal using \`pty-bridge\`." >&2
+    echo "Do not try this yourself - instead, ask the user to do it for you." >&2
+    echo "" >&2
+    echo "This is necessary for *interactive* commands - for example, sudo (requiring" >&2
+    echo "a password prompt). If you can avoid interactive tools, then prefer that." >&2
+    echo "Otherwise, please ask the user now." >&2
+    exit 1
+end
+
+# Generate unique ID for this command (simple numeric, no special chars)
+set -l cmd_id (random)(random)
+set -l start_marker "___PTYSEND_START_"$cmd_id"___"
+set -l end_marker "___PTYSEND_END_"$cmd_id"_"
+
+# Create stderr capture file
+mkdir -p $runtime_dir
+set -l stderr_file $runtime_dir/stderr.$cmd_id
+
+# Build the command string by properly escaping for the shell
+# We use printf %q to escape each argument
+set -l escaped_args
+for arg in $args
+    set -a escaped_args (printf '%s' $arg | string escape)
+end
+set -l cmd_string (string join ' ' -- $escaped_args)
+
+# Write the command to a temp script file to avoid line-wrapping issues
+# when the command is long and gets split across terminal lines
+# Note: We don't use 'eval' because it re-parses the command string and breaks quoting
+set -l cmd_file $runtime_dir/cmd.$cmd_id.fish
+echo "$cmd_string 2>$stderr_file; set -l __s \$status; echo $end_marker\$__s" > $cmd_file
+
+# The tmux session runs fish, so we can use fish syntax
+# The wrapper:
+# 1. Prints start marker
+# 2. Sources the command file (which runs command, captures status, prints end marker)
+set -l wrapped_cmd "echo $start_marker; source $cmd_file; rm $cmd_file"
+
+# Send the command to tmux
+tmux send-keys -t $session_name "$wrapped_cmd" Enter
+
+# Poll for completion
+set -l start_time (date +%s)
+set -l last_output_time $start_time
+set -l last_content ""
+
+while true
+    # Capture pane content
+    set -l content (tmux capture-pane -t $session_name -p -S -1000)
+    
+    # Check if output changed (for no-output timeout)
+    if test "$content" != "$last_content"
+        set last_output_time (date +%s)
+        set last_content $content
+    end
+    
+    # Check for end marker (just the prefix, exit status follows)
+    # The end marker line looks like: ___PTYSEND_END_12345_0
+    # We need to find it as its own line (the echo output), not as part of the command
+    if string match -q "*$end_marker*" -- $content
+        # Found the end marker somewhere, now parse carefully
+        set -l in_output false
+        set -l output_lines
+        set -l exit_status 0
+        set -l found_end false
+        
+        for line in (string split \n -- $content)
+            # Skip empty lines at the start
+            if test -z "$line" -a "$in_output" = false
+                continue
+            end
+            
+            # Look for start marker as the ENTIRE line (echoed output)
+            # This distinguishes from the command line which has more text
+            if test "$line" = "$start_marker"
+                set in_output true
+                continue
+            end
+            
+            # Look for end marker at START of line (echoed output)
+            # The line is: ___PTYSEND_END_12345_N where N is exit status
+            if string match -q "$end_marker*" -- $line
+                # Extract exit status
+                set -l after_marker (string replace "$end_marker" "" -- $line)
+                if string match -qr '^\d+$' -- $after_marker
+                    set exit_status $after_marker
+                end
+                set found_end true
+                break
+            end
+            
+            if test "$in_output" = true
+                set output_lines $output_lines $line
+            end
+        end
+        
+        # Only output if we found both markers properly
+        if test "$found_end" = true
+            # Output stdout
+            for line in $output_lines
+                echo $line
+            end
+            
+            # Output stderr
+            if test -f $stderr_file
+                cat $stderr_file >&2
+                rm -f $stderr_file
+            end
+            
+            exit $exit_status
+        end
+    end
+    
+    # Check no-output timeout
+    set -l now (date +%s)
+    set -l idle_time (math $now - $last_output_time)
+    if test $idle_time -ge $no_output_timeout
+        # Trigger two-phase kill
+        echo "Error: Command timed out (no output for $no_output_timeout seconds)." >&2
+        echo "" >&2
+        echo "The command produced no output for $no_output_timeout seconds and was terminated." >&2
+        echo "Use --timeout N to increase the no-output timeout." >&2
+        
+        # Phase 1: SIGINT
+        tmux send-keys -t $session_name C-c
+        sleep 3
+        
+        # Phase 2: SIGQUIT if still running
+        tmux send-keys -t $session_name C-\\
+        
+        # Cleanup
+        rm -f $stderr_file $cmd_file
+        exit 124
+    end
+    
+    # Check overall timeout
+    set -l elapsed (math $now - $start_time)
+    if test $elapsed -ge $max_time
+        echo "Error: Command timed out (exceeded $max_time seconds total)." >&2
+        echo "" >&2
+        echo "The command exceeded the maximum allowed runtime and was terminated." >&2
+        echo "Use --max-time N to increase the overall timeout." >&2
+        
+        # Phase 1: SIGINT
+        tmux send-keys -t $session_name C-c
+        sleep 3
+        
+        # Phase 2: SIGQUIT
+        tmux send-keys -t $session_name C-\\
+        
+        # Cleanup
+        rm -f $stderr_file $cmd_file
+        exit 124
+    end
+    
+    # Small sleep to avoid busy loop
+    sleep 0.1
+end
