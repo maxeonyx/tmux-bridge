@@ -91,51 +91,41 @@ for arg in $args
 end
 set -l cmd_string (string join ' ' -- $escaped_args)
 
-# Detect what shell is running in the tmux session
-set -l pane_pid (tmux display-message -t $session_name -p '#{pane_pid}')
-set -l shell_path (ps -p $pane_pid -o comm= 2>/dev/null | string trim)
-
 # Write the command to a temp script file to avoid line-wrapping issues
 # when the command is long and gets split across terminal lines
 set -l cmd_file $runtime_dir/cmd.$cmd_id
 
-# Write a self-contained script that:
-# 1. Shows the command being run (for human visibility)
-# 2. Prints start marker
-# 3. Runs the command with stderr redirected
-# 4. Prints end marker with exit status
-# 5. Cleans up the script file
+# Detect the shell running in the tmux session
+# Use pane_current_command which shows the foreground process (handles bash inside fish)
+set -l shell_name (tmux display-message -t $session_name -p '#{pane_current_command}')
 
-if string match -q '*fish*' -- $shell_path
-    # Fish shell syntax
-    set cmd_file $cmd_file.fish
+# Generate shell-appropriate script
+# Fish uses $status, bash/POSIX use $?
+if test "$shell_name" = fish
+    set cmd_file "$cmd_file.fish"
     echo "echo '[pty-send] $cmd_string'
 echo $start_marker
 $cmd_string 2>$stderr_file
-set -l __s \$status
-echo $end_marker\$__s
-rm $cmd_file" > $cmd_file
-    set -l wrapped_cmd "source $cmd_file"
+echo $end_marker\$status" > $cmd_file
 else
-    # POSIX/Bash shell syntax
-    set cmd_file $cmd_file.sh
+    set cmd_file "$cmd_file.sh"
     echo "echo '[pty-send] $cmd_string'
 echo $start_marker
 $cmd_string 2>$stderr_file
-__s=\$?
-echo $end_marker\$__s
-rm $cmd_file" > $cmd_file
-    set -l wrapped_cmd "source $cmd_file"
+echo $end_marker\$?" > $cmd_file
 end
 
+# Ensure file is fully written before we try to source it
+sync
+
 # The wrapper just sources the file - everything is visible in the file itself
-set -l wrapped_cmd "source $cmd_file"
+# Use '.' instead of 'source' for POSIX compatibility
+set -l wrapped_cmd ". $cmd_file"
 
 # Send the command to tmux
-# First, clear any pending input on the line (Ctrl-U clears line, Ctrl-C cancels)
-# This handles cases where terminal escape sequence responses or user typing
-# might be pending on the input line
-tmux send-keys -t $session_name C-c C-u
+# First, clear any pending input on the line (Ctrl-U clears line in bash/readline)
+# We avoid C-c as it can cause issues with some shells
+tmux send-keys -t $session_name C-u
 sleep 0.1
 tmux send-keys -t $session_name "$wrapped_cmd" Enter
 
@@ -208,6 +198,9 @@ while true
                 cat $stderr_file >&2
                 rm -f $stderr_file
             end
+            
+            # Cleanup command file
+            rm -f $cmd_file
             
             exit $exit_status
         end
