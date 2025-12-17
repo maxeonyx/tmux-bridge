@@ -104,6 +104,11 @@ echo "$cmd_string 2>$stderr_file; set -l __s \$status; echo $end_marker\$__s" > 
 set -l wrapped_cmd "echo $start_marker; source $cmd_file; rm $cmd_file"
 
 # Send the command to tmux
+# First, clear any pending input on the line (Ctrl-U clears line, Ctrl-C cancels)
+# This handles cases where terminal escape sequence responses or user typing
+# might be pending on the input line
+tmux send-keys -t $session_name C-c C-u
+sleep 0.1
 tmux send-keys -t $session_name "$wrapped_cmd" Enter
 
 # Poll for completion
