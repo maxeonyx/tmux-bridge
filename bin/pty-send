@@ -109,22 +109,46 @@ end
 
 # Validation
 if test "$mode" = command -a (count $args) -eq 0
-    echo "Usage: pty-send [flags] -- command [args...]" >&2
-    echo "       pty-send --repl-start CMD --prompt REGEX" >&2
-    echo "       pty-send --repl-eval EXPR" >&2
-    echo "       pty-send --repl-close" >&2
+    echo "pty-send: Send commands to a user-controlled terminal session" >&2
     echo "" >&2
-    echo "Run 'pty-send --help' for details." >&2
+    echo "COMMAND MODE (run shell commands):" >&2
+    echo "  pty-send [flags] -- command [args...]" >&2
+    echo "" >&2
+    echo "REPL MODE (interactive interpreters):" >&2
+    echo "  pty-send --repl-start CMD --prompt REGEX   Start a REPL" >&2
+    echo "  pty-send --repl-eval EXPR                  Evaluate expression" >&2
+    echo "  pty-send --repl-close                      Close REPL (Ctrl-D)" >&2
+    echo "" >&2
+    echo "EXAMPLES:" >&2
+    echo "  pty-send -- sudo apt install foo" >&2
+    echo "  pty-send --repl-start python3 --prompt \"^>>>\"" >&2
+    echo "  pty-send --repl-eval \"1 + 1\"" >&2
+    echo "" >&2
+    echo "Run 'pty-send --help' for full documentation." >&2
     exit 1
 end
 
 if test "$mode" = repl-start
     if test -z "$repl_cmd"
         echo "Error: --repl-start requires a command" >&2
+        echo "" >&2
+        echo "Usage: pty-send --repl-start CMD --prompt REGEX" >&2
+        echo "" >&2
+        echo "Example:" >&2
+        echo "  pty-send --repl-start python3 --prompt \"^>>>\"" >&2
+        echo "  pty-send --repl-start \"nix repl\" --prompt \"^nix-repl>\"" >&2
         exit 1
     end
     if test -z "$repl_prompt"
         echo "Error: --repl-start requires --prompt REGEX" >&2
+        echo "" >&2
+        echo "The prompt regex tells pty-send how to detect when the REPL is ready for input." >&2
+        echo "It should match the beginning of the REPL's prompt line." >&2
+        echo "" >&2
+        echo "Examples:" >&2
+        echo "  Python:  --prompt \"^>>>\"" >&2
+        echo "  Nix:     --prompt \"^nix-repl>\"" >&2
+        echo "  Node:    --prompt \"^>\"" >&2
         exit 1
     end
 end
@@ -267,7 +291,16 @@ if test "$mode" = repl-start
     # Wait for the REPL prompt
     if not wait_for_prompt $repl_prompt
         echo "Error: REPL did not show expected prompt." >&2
-        echo "Expected prompt matching: $repl_prompt" >&2
+        echo "" >&2
+        echo "The REPL was started but pty-send couldn't detect the prompt." >&2
+        echo "Expected prompt matching regex: $repl_prompt" >&2
+        echo "" >&2
+        echo "Possible causes:" >&2
+        echo "  - The prompt regex doesn't match the actual REPL prompt" >&2
+        echo "  - The REPL is slow to start (try --timeout N with a larger value)" >&2
+        echo "  - The REPL printed an error or is waiting for input" >&2
+        echo "" >&2
+        echo "Check the pty-bridge terminal to see what the REPL is showing." >&2
         exit 1
     end
     
@@ -286,6 +319,12 @@ if test "$mode" = repl-close
     set -l depth (get_repl_depth)
     if test $depth -eq 0
         echo "Error: No REPL session to close." >&2
+        echo "" >&2
+        echo "There is no active REPL session. You need to start one first:" >&2
+        echo "  pty-send --repl-start python3 --prompt \"^>>>\"" >&2
+        echo "" >&2
+        echo "Or if you expected a REPL to be running, it may have exited unexpectedly." >&2
+        echo "Check the pty-bridge terminal to see the current state." >&2
         exit 1
     end
     
@@ -314,6 +353,16 @@ end
 if test "$mode" = repl-eval
     if not read_repl_config
         echo "Error: No REPL session. Use --repl-start first." >&2
+        echo "" >&2
+        echo "Before evaluating expressions, you need to start a REPL session:" >&2
+        echo "  pty-send --repl-start python3 --prompt \"^>>>\"" >&2
+        echo "  pty-send --repl-start \"nix repl\" --prompt \"^nix-repl>\"" >&2
+        echo "" >&2
+        echo "Then you can evaluate expressions:" >&2
+        echo "  pty-send --repl-eval \"1 + 1\"" >&2
+        echo "" >&2
+        echo "When done, close the REPL:" >&2
+        echo "  pty-send --repl-close" >&2
         exit 1
     end
     
@@ -421,10 +470,21 @@ if test "$mode" = repl-eval
         set -l now (date +%s)
         if test (math $now - $last_output_time) -ge $no_output_timeout
             echo "Error: REPL eval timed out (no output for $no_output_timeout seconds)." >&2
+            echo "" >&2
+            echo "The REPL did not produce output or return to its prompt." >&2
+            echo "" >&2
+            echo "Possible causes:" >&2
+            echo "  - The expression is taking a long time to evaluate" >&2
+            echo "  - The REPL is waiting for more input (multi-line expression?)" >&2
+            echo "  - The REPL crashed or exited" >&2
+            echo "" >&2
+            echo "Check the pty-bridge terminal. Use --timeout N for slower operations." >&2
             exit 124
         end
         if test (math $now - $start_time) -ge $max_time
             echo "Error: REPL eval timed out (exceeded $max_time seconds)." >&2
+            echo "" >&2
+            echo "Use --max-time N to allow longer-running evaluations." >&2
             exit 124
         end
         
