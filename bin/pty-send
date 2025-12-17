@@ -144,13 +144,15 @@ while true
                 continue
             end
             
-            # Look for end marker at START of line (echoed output)
-            # The line is: ___PTYSEND_END_12345_N where N is exit status
-            if string match -q "$end_marker*" -- $line
-                # Extract exit status
-                set -l after_marker (string replace "$end_marker" "" -- $line)
-                if string match -qr '^\d+$' -- $after_marker
-                    set exit_status $after_marker
+            # Look for end marker ANYWHERE in line
+            # The echoed line is: ___PTYSEND_END_12345_N where N is exit status
+            # But user typing might appear after it on the same line
+            if string match -q "*$end_marker*" -- $line
+                # Extract exit status using regex
+                # Match the marker followed by digits
+                set -l match (string match -r "___PTYSEND_END_"$cmd_id"_(\d+)" -- $line)
+                if test (count $match) -ge 2
+                    set exit_status $match[2]
                 end
                 set found_end true
                 break
