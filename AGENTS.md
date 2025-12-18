@@ -79,7 +79,100 @@ Otherwise, please ask the user now.
 
 ## What Not To Do
 
-- Don't add REPL support yet (v2)
-- Don't hide markers from the human terminal yet (v2)
+- Don't hide markers from the human terminal yet (future possibility)
 - Don't add features without updating README and VISION
 - Don't use bash - this project uses fish
+
+## Manual Walkthrough Testing
+
+When making significant changes, run through this manual test matrix with the user.
+The user must have `pty-bridge` running in a terminal they control.
+
+### Test Matrix
+
+For each shell type (bash, Python, Nix, Node), test three scenarios:
+
+| Scenario | What to test |
+|----------|--------------|
+| Normal | Command/eval completes successfully |
+| User types during | User types while command is running - their input gets captured |
+| User kills/closes | User interrupts (Ctrl+C), kills the REPL, or closes the bridge |
+
+### Bash (command mode)
+
+```bash
+# 1. Normal
+pty-send -- echo "hello"
+
+# 2. User types during (use sleep so they have time)
+pty-send --timeout 20 -- sleep 10 && echo "done"
+
+# 3. User interrupts - expect timeout since no end marker
+pty-send --timeout 20 -- sleep 60
+```
+
+### Python REPL
+
+```bash
+# 1. Normal
+pty-send --repl-start python3 --prompt "^>>>"
+pty-send --repl-eval "1 + 1"
+pty-send --repl-close
+
+# 2. User types during
+pty-send --repl-start python3 --prompt "^>>>" --timeout 20
+pty-send --repl-eval "import time; time.sleep(10); 'done'" --timeout 20
+pty-send --repl-close
+
+# 3. User kills REPL (killall -9 python3) - expect timeout, then clean up
+pty-send --repl-start python3 --prompt "^>>>" --timeout 20
+pty-send --repl-eval "import time; time.sleep(60); 'done'" --timeout 20
+rm -f /tmp/pty-bridge-$USER/repl.*  # clean stale state
+```
+
+### Nix REPL
+
+```bash
+# 1. Normal
+pty-send --repl-start "nix repl" --prompt "^nix-repl>"
+pty-send --repl-eval "1 + 1"
+pty-send --repl-close
+
+# 2. User types during (slow fold operation)
+pty-send --repl-start "nix repl" --prompt "^nix-repl>" --timeout 20
+pty-send --repl-eval "builtins.seq (builtins.foldl' (a: b: a + b) 0 (builtins.genList (x: x) 10000000)) \"done\"" --timeout 20
+pty-send --repl-close
+
+# 3. User kills REPL - get PID first, then kill -9
+pty-send --repl-start "nix repl" --prompt "^nix-repl>" --timeout 20
+# user runs: ps aux | grep "nix repl" then kill -9 <pid>
+pty-send --repl-eval "builtins.seq (builtins.foldl' (a: b: a + b) 0 (builtins.genList (x: x) 50000000)) \"done\"" --timeout 20
+rm -f /tmp/pty-bridge-$USER/repl.*
+```
+
+### Node REPL
+
+```bash
+# 1. Normal
+pty-send --repl-start node --prompt "^>"
+pty-send --repl-eval "1 + 1"
+pty-send --repl-close
+
+# 2. User types during (sync busy loop)
+pty-send --repl-start node --prompt "^>" --timeout 20
+pty-send --repl-eval "const start = Date.now(); while (Date.now() - start < 10000) {}; 'done'" --timeout 20
+pty-send --repl-close
+
+# 3. User kills REPL - get PID first
+pty-send --repl-start node --prompt "^>" --timeout 20
+pty-send --repl-eval "process.pid"  # note this, then user runs kill -9 <pid>
+pty-send --repl-eval "const t = Date.now(); while (Date.now() - t < 60000) {}; 'done'" --timeout 20
+rm -f /tmp/pty-bridge-$USER/repl.*
+```
+
+### Expected behaviors
+
+- **User types during**: Their keystrokes appear in captured output
+- **User Ctrl+C**: Command/REPL handles interrupt, may return to prompt with error
+- **User kills process**: Timeout occurs, error message guides agent to ask user
+- **User closes bridge**: Clean error "PTY bridge session closed unexpectedly"
