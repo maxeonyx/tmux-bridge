@@ -133,3 +133,4 @@ Planned approach:
 - **Concurrent command queue**: Multiple `pty-send` calls handled sequentially
 - **Session persistence**: Keep session alive briefly after last terminal exits
 - **Alternative backends**: Direct PTY management without tmux dependency
+- **Partial output on timeout**: Show captured output up to the timeout point (if practicable)
