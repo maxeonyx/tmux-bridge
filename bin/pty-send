@@ -241,7 +241,7 @@ function wait_for_prompt --argument-names prompt_regex
     set -l last_content ""
     
     while true
-        set -l content (tmux capture-pane -t $session_name -p -S -50)
+        set -l content (tmux capture-pane -t $session_name -p -S -)
         
         if test "$content" != "$last_content"
             set last_output_time (date +%s)
@@ -398,7 +398,7 @@ if test "$mode" = repl-eval
     set -l last_content ""
     
     while true
-        set -l content (tmux capture-pane -t $session_name -p -S -50)
+        set -l content (tmux capture-pane -t $session_name -p -S -)
         
         if test "$content" != "$last_content"
             set last_output_time (date +%s)
@@ -433,15 +433,13 @@ if test "$mode" = repl-eval
             end
         else
             # No markers - wait for prompt and extract output between command echo and prompt
-            # Find the LAST occurrence of the expression (the one we just typed) and look after it
             set -l all_lines (string split \n -- $content)
             set -l expr_line_idx 0
             
-            # Search from end to find the last line containing our expression
-            for i in (seq (count $all_lines) -1 1)
+            # Find the LAST occurrence by searching forward and updating each time
+            for i in (seq 1 (count $all_lines))
                 if string match -q "*$repl_expr*" -- $all_lines[$i]
                     set expr_line_idx $i
-                    break
                 end
             end
             
