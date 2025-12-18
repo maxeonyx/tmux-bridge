@@ -168,6 +168,15 @@ if not tmux has-session -t $session_name 2>/dev/null
     exit 1
 end
 
+# Helper to handle session disappearing mid-operation
+function session_died
+    echo "Error: PTY bridge session closed unexpectedly." >&2
+    echo "" >&2
+    echo "The pty-bridge terminal was closed while the command was running." >&2
+    echo "Ask the user to restart pty-bridge and try again." >&2
+    exit 1
+end
+
 mkdir -p $runtime_dir
 
 #------------------------------------------------------------------------------
@@ -241,7 +250,8 @@ function wait_for_prompt --argument-names prompt_regex
     set -l last_content ""
     
     while true
-        set -l content (tmux capture-pane -t $session_name -p -S -)
+        set -l content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
+        or session_died
         
         if test "$content" != "$last_content"
             set last_output_time (date +%s)
@@ -398,7 +408,8 @@ if test "$mode" = repl-eval
     set -l last_content ""
     
     while true
-        set -l content (tmux capture-pane -t $session_name -p -S -)
+        set -l content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
+        or session_died
         
         if test "$content" != "$last_content"
             set last_output_time (date +%s)
@@ -550,7 +561,8 @@ set -l last_output_time $start_time
 set -l last_content ""
 
 while true
-    set -l content (tmux capture-pane -t $session_name -p -S -1000)
+    set -l content (tmux capture-pane -t $session_name -p -S -1000 2>/dev/null)
+    or session_died
     
     if test "$content" != "$last_content"
         set last_output_time (date +%s)
