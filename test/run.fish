@@ -1,8 +1,8 @@
 #!/usr/bin/env fish
 #
-# Test harness for pty-bridge
+# Test harness for tmux-bridge
 #
-# Runs the full flow: starts pty-bridge, sends commands via pty-send,
+# Runs the full flow: starts tmux-bridge, sends commands via tmux-send,
 # verifies results, and cleans up.
 #
 # Usage: ./test/run.fish
@@ -39,17 +39,17 @@ end
 
 # Clean up any existing session before starting
 function cleanup
-    tmux kill-session -t "pty-bridge-$USER" 2>/dev/null
-    rm -rf /tmp/pty-bridge-$USER
+    tmux kill-session -t "tmux-bridge-$USER" 2>/dev/null
+    rm -rf /tmp/tmux-bridge-$USER
 end
 
 # Start the tmux session directly for testing
-# (pty-bridge would attach interactively, which we can't do in tests)
+# (tmux-bridge would attach interactively, which we can't do in tests)
 function start_bridge
-    log_info "Starting pty-bridge session..."
+    log_info "Starting tmux-bridge session..."
     
-    set -l session_name "pty-bridge-$USER"
-    set -l runtime_dir /tmp/pty-bridge-$USER
+    set -l session_name "tmux-bridge-$USER"
+    set -l runtime_dir /tmp/tmux-bridge-$USER
     
     mkdir -p $runtime_dir
     chmod 700 $runtime_dir
@@ -69,16 +69,16 @@ function start_bridge
 end
 
 function stop_bridge
-    log_info "Stopping pty-bridge session..."
-    tmux kill-session -t "pty-bridge-$USER" 2>/dev/null
+    log_info "Stopping tmux-bridge session..."
+    tmux kill-session -t "tmux-bridge-$USER" 2>/dev/null
 end
 
-# Test helper: run pty-send and capture results
-function run_pty_send
+# Test helper: run tmux-send and capture results
+function run_tmux_send
     set -l stdout_file (mktemp)
     set -l stderr_file (mktemp)
     
-    command $bin_dir/pty-send $argv >$stdout_file 2>$stderr_file
+    command $bin_dir/tmux-send $argv >$stdout_file 2>$stderr_file
     set -l exit_status $status
     
     set -g last_stdout (cat $stdout_file)
@@ -92,17 +92,17 @@ end
 # --- Tests ---
 
 function test_no_bridge_error
-    log_info "Test: pty-send without bridge shows error"
+    log_info "Test: tmux-send without bridge shows error"
     
     cleanup  # Ensure no session
     
-    run_pty_send -- echo hello
+    run_tmux_send -- echo hello
     
     if test $last_status -ne 0
-        and string match -q "*No PTY bridge session*" $last_stderr
-        log_pass "pty-send shows helpful error when no bridge"
+        and string match -q "*No tmux-bridge session*" $last_stderr
+        log_pass "tmux-send shows helpful error when no bridge"
     else
-        log_fail "pty-send should error when no bridge" \
+        log_fail "tmux-send should error when no bridge" \
             "status: $last_status" \
             "stderr: $last_stderr"
     end
@@ -111,7 +111,7 @@ end
 function test_simple_command
     log_info "Test: simple command returns stdout"
     
-    run_pty_send -- echo "hello world"
+    run_tmux_send -- echo "hello world"
     
     if test $last_status -eq 0
         and test "$last_stdout" = "hello world"
@@ -127,7 +127,7 @@ end
 function test_exit_status
     log_info "Test: exit status is captured"
     
-    run_pty_send -- false
+    run_tmux_send -- false
     
     if test $last_status -ne 0
         log_pass "Exit status captured for failing command"
@@ -139,7 +139,7 @@ end
 function test_stderr_separation
     log_info "Test: stderr is separated from stdout"
     
-    run_pty_send -- fish -c "echo stdout; echo stderr >&2"
+    run_tmux_send -- fish -c "echo stdout; echo stderr >&2"
     
     if string match -q "*stdout*" $last_stdout
         and string match -q "*stderr*" $last_stderr
@@ -155,7 +155,7 @@ end
 function test_multiline_output
     log_info "Test: multiline output captured"
     
-    run_pty_send -- fish -c "echo line1; echo line2; echo line3"
+    run_tmux_send -- fish -c "echo line1; echo line2; echo line3"
     
     if string match -q "*line1*" $last_stdout
         and string match -q "*line2*" $last_stdout
@@ -170,7 +170,7 @@ end
 function test_command_with_args
     log_info "Test: command with multiple arguments"
     
-    run_pty_send -- ls -la /tmp
+    run_tmux_send -- ls -la /tmp
     
     if test $last_status -eq 0
         and string match -q "*total*" -- $last_stdout
@@ -185,7 +185,7 @@ end
 function test_timeout_flag
     log_info "Test: --timeout flag accepted"
     
-    run_pty_send --timeout 5 -- echo "with timeout"
+    run_tmux_send --timeout 5 -- echo "with timeout"
     
     if test $last_status -eq 0
         and test "$last_stdout" = "with timeout"
@@ -201,7 +201,7 @@ function test_no_output_timeout
     log_info "Test: no-output timeout triggers"
     
     # sleep produces no output, should timeout after 2s
-    run_pty_send --timeout 2 -- sleep 10
+    run_tmux_send --timeout 2 -- sleep 10
     
     if test $last_status -ne 0
         and string match -q "*timed out*" $last_stderr
@@ -216,7 +216,7 @@ end
 # --- Main ---
 
 function main
-    log_info "pty-bridge test harness"
+    log_info "tmux-bridge test harness"
     log_info "======================"
     echo
     

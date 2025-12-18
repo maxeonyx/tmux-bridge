@@ -1,12 +1,12 @@
 #!/usr/bin/env fish
 #
-# pty-bridge: Start or attach to the shared PTY bridge session
+# tmux-bridge: Start or attach to the shared tmux-bridge session
 #
 # The human runs this to create an interactive terminal that AI agents
-# can send commands to via pty-send.
+# can send commands to via tmux-send.
 
-set -l session_name "pty-bridge-$USER"
-set -l runtime_dir /tmp/pty-bridge-$USER
+set -l session_name "tmux-bridge-$USER"
+set -l runtime_dir /tmp/tmux-bridge-$USER
 
 # Ensure runtime directory exists
 mkdir -p $runtime_dir
