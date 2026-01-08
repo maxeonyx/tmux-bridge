@@ -165,16 +165,26 @@ if test "$mode" = close
     tmux send-keys -t $session_name C-u
     sleep 0.1
     tmux send-keys -t $session_name C-d
+    sleep 0.3
+    # Show the resulting pane state
+    echo "Sent Ctrl-C, Ctrl-U, Ctrl-D"
+    tmux capture-pane -t $session_name -p | grep -v '^$' | tail -5
     exit 0
 end
 
 if test "$mode" = ctrl-c
     tmux send-keys -t $session_name C-c
+    sleep 0.2
+    echo "Sent Ctrl-C"
+    tmux capture-pane -t $session_name -p | grep -v '^$' | tail -3
     exit 0
 end
 
 if test "$mode" = ctrl-d
     tmux send-keys -t $session_name C-d
+    sleep 0.2
+    echo "Sent Ctrl-D"
+    tmux capture-pane -t $session_name -p | grep -v '^$' | tail -3
     exit 0
 end
 
@@ -221,7 +231,16 @@ if test "$mode" = repl
         set text_to_send (string replace -a "{id}" "$expr_id" -- $text_to_send)
     end
     
-    # Send with -l (literal mode) - no escaping needed
+    # Capture initial state BEFORE sending
+    set -l initial_content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
+    
+    # Send with -l (literal mode)
+    # Workaround: tmux -l strips trailing semicolons, so append a space
+    # (most shells/REPLs ignore trailing whitespace)
+    if string match -qr ';$' -- "$text_to_send"
+        set text_to_send "$text_to_send "
+    end
+    
     tmux send-keys -t $session_name C-u
     sleep 0.1
     tmux send-keys -l -t $session_name "$text_to_send"
@@ -230,7 +249,6 @@ if test "$mode" = repl
     # Wait for prompt - must see content change before checking
     set -l start_time (date +%s)
     set -l last_output_time $start_time
-    set -l initial_content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
     set -l last_content $initial_content
     set -l content_changed false
     
@@ -296,7 +314,8 @@ end
 
 set -l cmd_id (random)(random)
 set -l start_marker "___START_"$cmd_id"___"
-set -l end_marker "___END_"$cmd_id"_"
+set -l end_marker_prefix "___END_"$cmd_id"_"
+set -l end_marker_suffix "___"
 
 # Build command string - preserve newlines in single arg, quote multi-arg
 if test (count $args) -eq 1
@@ -321,8 +340,8 @@ set -l shell_name (tmux display-message -t $session_name -p '#{pane_current_comm
 set -l exit_var '$?'
 test "$shell_name" = fish && set exit_var '$status'
 
-# Build inline command: echo START; command; echo END_$?
-set -l inline_cmd "echo '$start_marker'; $cmd_string; echo '$end_marker'$exit_var"
+# Build inline command: echo START; command; echo END_$?___
+set -l inline_cmd "echo '$start_marker'; $cmd_string; echo '$end_marker_prefix'$exit_var'$end_marker_suffix'"
 
 # Send
 tmux send-keys -t $session_name C-u
@@ -347,29 +366,39 @@ while true
     end
     
     # Check for END marker at start of line (not in command echo)
-    if string match -rq "(^|\n)___END_"$cmd_id"_" -- $content
+    # Must include the exit status and closing ___ - don't match partial output
+    if string match -rq "(^|\n)___END_"$cmd_id"_\d+___" -- $content
         set -l all_lines (string split \n -- $content)
         set -l in_output false
         set -l output_lines
-        set -l exit_status 0
+        set -l exit_status ""
         
         # Search for our specific markers
         # Start marker must be exact match (the echo output, not the command)
-        # End marker starts with our pattern (has exit status appended)
+        # End marker: ___END_id_N___
         for line in $all_lines
             if test "$line" = "$start_marker"
                 set in_output true
                 continue
             end
             # End marker must start at beginning of line (not in a command echo)
-            if string match -rq "^___END_"$cmd_id"_" -- $line
-                set -l match (string match -r "___END_"$cmd_id"_(\d+)" -- $line)
-                test (count $match) -ge 2 && set exit_status $match[2]
+            if string match -rq "^___END_"$cmd_id"_\d+___" -- $line
+                set -l match (string match -r "___END_"$cmd_id"_(\d+)___" -- $line)
+                if test (count $match) -ge 2
+                    set exit_status $match[2]
+                end
                 break
             end
             if test "$in_output" = true
                 set output_lines $output_lines $line
             end
+        end
+        
+        # Exit status must have been captured
+        if test -z "$exit_status"
+            echo "Error: Failed to parse exit status from command output." >&2
+            echo "This is a bug in tmux-send." >&2
+            exit 1
         end
         
         for line in $output_lines

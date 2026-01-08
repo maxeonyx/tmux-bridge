@@ -132,7 +132,8 @@ function test_exit_status
     if test $last_status -ne 0
         log_pass "Exit status captured for failing command"
     else
-        log_fail "Exit status should be non-zero for 'false'"
+        log_fail "Exit status should be non-zero for 'false'" \
+            "status: $last_status"
     end
 end
 
@@ -188,6 +189,20 @@ line3"'
     end
 end
 
+function test_semicolon_preserved
+    log_info "Test: semicolons preserved in commands"
+    
+    run_tmux_send -- 'echo "before;after"'
+    
+    if test $last_status -eq 0
+        and string match -q "*before;after*" $last_stdout
+        log_pass "Semicolons preserved in command"
+    else
+        log_fail "Semicolons not preserved" \
+            "stdout: '$last_stdout'"
+    end
+end
+
 function test_command_with_args
     log_info "Test: command with multiple arguments"
     
@@ -234,6 +249,23 @@ function test_no_output_timeout
     end
 end
 
+function test_repl_semicolon
+    log_info "Test: REPL mode preserves trailing semicolons"
+    
+    # Use fish's prompt pattern - just need to verify semicolon is sent
+    # The fish prompt in the test session matches the pattern we use
+    run_tmux_send --prompt "^>" -- 'echo "test;"'
+    
+    # Check if semicolon was preserved in the output (echo should print test;)
+    # Use printf to handle the variable safely
+    if printf "%s" "$last_stdout" | grep -q "test;"
+        log_pass "REPL mode preserves trailing semicolons"
+    else
+        log_fail "Semicolon not preserved in REPL mode" \
+            "stdout: '$last_stdout'"
+    end
+end
+
 # --- Main ---
 
 function main
@@ -259,9 +291,11 @@ function main
     test_stderr_separation
     test_multiline_output
     test_multiline_input
+    test_semicolon_preserved
     test_command_with_args
     test_timeout_flag
     test_no_output_timeout
+    test_repl_semicolon
     
     echo
     stop_bridge
