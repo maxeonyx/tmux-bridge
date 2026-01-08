@@ -6,12 +6,15 @@
 #   tmux-send [flags] -- command [args...]
 #   Runs a shell command and captures stdout/stderr/exit status.
 #
-# REPL MODE:
-#   tmux-send --repl-start CMD --prompt REGEX [--eval-template TPL]
-#   tmux-send --repl-eval EXPR
-#   tmux-send --repl-close
+# REPL MODE (with presets):
+#   tmux-send --repl NAME [-- extra-args...]   Start a known REPL
+#   tmux-send --repl-eval EXPR                 Evaluate expression
+#   tmux-send --repl-close                     Close REPL (Ctrl-D)
+#   tmux-send --repl-list                      List available presets
 #
-#   Start a REPL, send expressions, and close it. Supports nesting.
+# REPL MODE (custom):
+#   tmux-send --repl-start CMD --prompt REGEX [--eval-template TPL]
+#   For REPLs not in the preset list. See --repl-list for examples.
 #
 # FLAGS:
 #   --timeout N      No-output timeout in seconds (default: 10)
@@ -19,27 +22,28 @@
 #   --help           Show this help
 #
 # REPL FLAGS:
-#   --repl-start CMD      Start REPL with given command
+#   --repl NAME           Start a preset REPL (python, node, psql, nix)
+#   --repl-start CMD      Start custom REPL with given command
 #   --prompt REGEX        Regex to detect REPL prompt (required with --repl-start)
 #   --eval-template TPL   Template for wrapping expressions (optional)
-#                         Use {expr} as placeholder. Use {id} for unique marker ID.
-#                         Default: just sends expression directly
+#                         Use {expr} as placeholder, {id} for unique marker.
 #   --repl-eval EXPR      Send expression to current REPL
 #   --repl-close          Close current REPL (sends Ctrl-D)
+#   --repl-list           Show available presets with configuration details
 #
 # EXAMPLES:
 #   # Command mode
 #   tmux-send -- ls -la
 #   tmux-send --timeout 30 -- make build
 #
-#   # Python REPL
-#   tmux-send --repl-start python3 --prompt "^>>> |^\.\.\. " \
-#     --eval-template 'print("___START_{id}___"); {expr}; print("___END_{id}___")'
-#   tmux-send --repl-eval "1 + 1"
+#   # Using presets (recommended)
+#   tmux-send --repl python
+#   tmux-send --repl psql -- -d mydb
+#   tmux-send --repl-eval "SELECT 1 + 1;"
 #   tmux-send --repl-close
 #
-#   # Nix REPL
-#   tmux-send --repl-start "nix repl" --prompt "^nix-repl> "
+#   # Custom REPL
+#   tmux-send --repl-start "my-repl" --prompt "^>" --eval-template 'print("{id}"); {expr}'
 #   tmux-send --repl-eval "1 + 1"
 #   tmux-send --repl-close
 
@@ -50,8 +54,71 @@ set -g runtime_dir /tmp/tmux-bridge-$USER
 set -g no_output_timeout 10
 set -g max_time 120
 
+#------------------------------------------------------------------------------
+# REPL Presets
+#------------------------------------------------------------------------------
+# Each preset defines: command, prompt regex, and optional eval template.
+# Eval templates use {expr} for the expression and {id} for unique markers.
+
+function get_repl_preset --argument-names name
+    switch $name
+        case python python3
+            echo "cmd=python3"
+            echo "prompt=^>>> |^\\.\\.\\. "
+            echo "template=print(\"___START_{id}___\"); {expr}; print(\"___END_{id}___\")"
+        case node nodejs
+            echo "cmd=node"
+            echo "prompt=^> "
+            echo "template=console.log(\"___START_{id}___\"); {expr}; console.log(\"___END_{id}___\")"
+        case psql postgres postgresql
+            echo "cmd=psql"
+            echo "prompt=^[a-z_0-9]+=[#>]"
+            echo "template="
+        case nix nix-repl
+            echo "cmd=nix repl"
+            echo "prompt=^nix-repl> "
+            echo "template="
+        case '*'
+            return 1
+    end
+end
+
+function show_repl_list
+    echo "Available REPL presets:"
+    echo ""
+    echo "  python    Python 3 interpreter"
+    echo "            Command: python3"
+    echo "            Prompt:  ^>>> |^\\.\\.\\. "
+    echo "            Uses eval template with markers for reliable output capture."
+    echo ""
+    echo "  node      Node.js interpreter"
+    echo "            Command: node"
+    echo "            Prompt:  ^> "
+    echo "            Uses eval template with markers for reliable output capture."
+    echo ""
+    echo "  psql      PostgreSQL client"
+    echo "            Command: psql"
+    echo "            Prompt:  ^[a-z_0-9]+=[#>]"
+    echo "            Uses prompt detection (semicolon terminates queries)."
+    echo "            Example: tmux-send --repl psql -- -d mydb"
+    echo ""
+    echo "  nix       Nix REPL"
+    echo "            Command: nix repl"
+    echo "            Prompt:  ^nix-repl> "
+    echo "            Uses prompt detection."
+    echo ""
+    echo "Custom REPL example:"
+    echo "  tmux-send --repl-start \"my-repl\" --prompt \"^mycustom> \" \\"
+    echo "    --eval-template 'print(\"___START_{id}___\"); {expr}; print(\"___END_{id}___\")'"
+    echo ""
+    echo "The eval-template wraps expressions with markers for reliable output capture."
+    echo "Use {expr} where the expression goes, {id} for unique marker IDs."
+    echo "If your REPL has a reliable prompt, you can omit --eval-template."
+end
+
 # REPL mode variables
-set -l mode command  # command, repl-start, repl-eval, repl-close
+set -l mode command  # command, repl-start, repl-eval, repl-close, repl-list
+set -l repl_preset ""
 set -l repl_cmd ""
 set -l repl_prompt ""
 set -l repl_eval_template ""
@@ -73,6 +140,12 @@ while test $i -le (count $argv)
             case --max-time
                 set i (math $i + 1)
                 set max_time $argv[$i]
+            case --repl
+                set mode repl-preset
+                set i (math $i + 1)
+                set repl_preset $argv[$i]
+            case --repl-list
+                set mode repl-list
             case --repl-start
                 set mode repl-start
                 set i (math $i + 1)
@@ -91,7 +164,7 @@ while test $i -le (count $argv)
                 set mode repl-close
             case --help
                 # Print header comment as help
-                head -45 (status filename) | tail -43 | string replace -r '^# ?' ''
+                head -48 (status filename) | tail -46 | string replace -r '^# ?' ''
                 exit 0
             case --
                 set parsing_flags false
@@ -115,17 +188,71 @@ if test "$mode" = command -a (count $args) -eq 0
     echo "  tmux-send [flags] -- command [args...]" >&2
     echo "" >&2
     echo "REPL MODE (interactive interpreters):" >&2
-    echo "  tmux-send --repl-start CMD --prompt REGEX   Start a REPL" >&2
-    echo "  tmux-send --repl-eval EXPR                  Evaluate expression" >&2
-    echo "  tmux-send --repl-close                      Close REPL (Ctrl-D)" >&2
+    echo "  tmux-send --repl NAME [-- args...]        Start a preset REPL" >&2
+    echo "  tmux-send --repl-start CMD --prompt RE    Start custom REPL" >&2
+    echo "  tmux-send --repl-eval EXPR                Evaluate expression" >&2
+    echo "  tmux-send --repl-close                    Close REPL (Ctrl-D)" >&2
+    echo "  tmux-send --repl-list                     Show available presets" >&2
     echo "" >&2
     echo "EXAMPLES:" >&2
     echo "  tmux-send -- sudo apt install foo" >&2
-    echo "  tmux-send --repl-start python3 --prompt \"^>>>\"" >&2
+    echo "  tmux-send --repl python" >&2
+    echo "  tmux-send --repl psql -- -d mydb" >&2
     echo "  tmux-send --repl-eval \"1 + 1\"" >&2
     echo "" >&2
     echo "Run 'tmux-send --help' for full documentation." >&2
+    echo "Run 'tmux-send --repl-list' for preset details." >&2
     exit 1
+end
+
+# Handle --repl-list
+if test "$mode" = repl-list
+    show_repl_list
+    exit 0
+end
+
+# Handle --repl preset - resolve to repl-start with preset values
+if test "$mode" = repl-preset
+    if test -z "$repl_preset"
+        echo "Error: --repl requires a preset name" >&2
+        echo "" >&2
+        echo "Usage: tmux-send --repl NAME [-- extra-args...]" >&2
+        echo "" >&2
+        echo "Run 'tmux-send --repl-list' to see available presets." >&2
+        exit 1
+    end
+    
+    set -l preset_config (get_repl_preset $repl_preset)
+    if test $status -ne 0
+        echo "Error: Unknown REPL preset '$repl_preset'" >&2
+        echo "" >&2
+        echo "Available presets: python, node, psql, nix" >&2
+        echo "" >&2
+        echo "Run 'tmux-send --repl-list' for details." >&2
+        echo "" >&2
+        echo "For custom REPLs, use --repl-start with --prompt:" >&2
+        echo "  tmux-send --repl-start \"$repl_preset\" --prompt \"^your-prompt> \"" >&2
+        exit 1
+    end
+    
+    # Parse preset config
+    for line in (string split \n -- $preset_config)
+        if string match -q "cmd=*" -- $line
+            set repl_cmd (string replace "cmd=" "" -- $line)
+        else if string match -q "prompt=*" -- $line
+            set repl_prompt (string replace "prompt=" "" -- $line)
+        else if string match -q "template=*" -- $line
+            set repl_eval_template (string replace "template=" "" -- $line)
+        end
+    end
+    
+    # Append any extra args from after --
+    if test (count $args) -gt 0
+        set repl_cmd "$repl_cmd "(string join ' ' -- $args)
+    end
+    
+    # Switch to repl-start mode
+    set mode repl-start
 end
 
 if test "$mode" = repl-start
@@ -487,9 +614,11 @@ if test "$mode" = repl-eval
         # Check timeouts
         set -l now (date +%s)
         if test (math $now - $last_output_time) -ge $no_output_timeout
+            # Send Ctrl-C to interrupt and recover REPL
+            tmux send-keys -t $session_name C-c
             echo "Error: REPL eval timed out (no output for $no_output_timeout seconds)." >&2
             echo "" >&2
-            echo "The REPL did not return to its prompt after the expression was sent." >&2
+            echo "Sent Ctrl-C to interrupt. The REPL should be usable." >&2
             echo "" >&2
             echo "Try these fixes:" >&2
             echo "  1. For slow operations, increase timeout: --timeout 30" >&2
@@ -501,9 +630,12 @@ if test "$mode" = repl-eval
             exit 124
         end
         if test (math $now - $start_time) -ge $max_time
+            # Send Ctrl-C to interrupt and recover REPL
+            tmux send-keys -t $session_name C-c
             echo "Error: REPL eval timed out (exceeded $max_time seconds)." >&2
             echo "" >&2
-            echo "The expression took too long. Use --max-time N for longer operations." >&2
+            echo "Sent Ctrl-C to interrupt. The REPL should be usable." >&2
+            echo "Use --max-time N for longer operations." >&2
             exit 124
         end
         
