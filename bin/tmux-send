@@ -206,7 +206,12 @@ end
 #------------------------------------------------------------------------------
 
 if test "$mode" = repl
-    set -l text (string join ' ' -- $args)
+    # Preserve newlines in single arg, join multiple args with space
+    if test (count $args) -eq 1
+        set text "$args[1]"
+    else
+        set text (string join ' ' -- $args)
+    end
     set -l expr_id (random)(random)
     
     # Apply template if provided
@@ -216,11 +221,10 @@ if test "$mode" = repl
         set text_to_send (string replace -a "{id}" "$expr_id" -- $text_to_send)
     end
     
-    # Send (escape semicolons for tmux)
-    set -l escaped (string replace -a ';' '\\;' -- $text_to_send)
+    # Send with -l (literal mode) - no escaping needed
     tmux send-keys -t $session_name C-u
     sleep 0.1
-    tmux send-keys -l -t $session_name "$escaped"
+    tmux send-keys -l -t $session_name "$text_to_send"
     tmux send-keys -t $session_name Enter
     
     # Wait for prompt
@@ -288,8 +292,12 @@ set -l cmd_id (random)(random)
 set -l start_marker "___START_"$cmd_id"___"
 set -l end_marker "___END_"$cmd_id"_"
 
-# Build command string
-set -l cmd_string (string join ' ' -- $args)
+# Build command string - preserve newlines in single arg
+if test (count $args) -eq 1
+    set cmd_string "$args[1]"
+else
+    set cmd_string (string join ' ' -- $args)
+end
 
 # Detect shell for exit status syntax
 set -l shell_name (tmux display-message -t $session_name -p '#{pane_current_command}')
