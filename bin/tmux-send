@@ -294,9 +294,12 @@ if test "$mode" = repl-start
     echo "[tmux-send] Starting REPL: $repl_cmd" >&2
     
     # Send the command to start the REPL
+    # Escape semicolons for tmux (it treats ; as command separator even with -l)
+    set -l escaped_repl_cmd (string replace -a ';' '\\;' -- $repl_cmd)
     tmux send-keys -t $session_name C-u
     sleep 0.1
-    tmux send-keys -t $session_name "$repl_cmd" Enter
+    tmux send-keys -l -t $session_name "$escaped_repl_cmd"
+    tmux send-keys -t $session_name Enter
     
     # Wait for the REPL prompt
     if not wait_for_prompt $repl_prompt
@@ -398,9 +401,12 @@ if test "$mode" = repl-eval
     end
     
     # Clear line and send expression
+    # Escape semicolons for tmux (it treats ; as command separator even with -l)
+    set -l escaped_expr (string replace -a ';' '\\;' -- $expr_to_send)
     tmux send-keys -t $session_name C-u
     sleep 0.1
-    tmux send-keys -t $session_name "$expr_to_send" Enter
+    tmux send-keys -l -t $session_name "$escaped_expr"
+    tmux send-keys -t $session_name Enter
     
     # Wait for output and next prompt
     set -l start_time (date +%s)
