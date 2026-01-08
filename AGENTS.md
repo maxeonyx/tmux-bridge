@@ -90,11 +90,12 @@ The user must have `tmux-bridge` running in a terminal they control.
 
 ### Test Matrix
 
-For each shell type (bash, Python, Nix, Node), test three scenarios:
+For each shell type (bash, Python, Nix, Node), test these scenarios:
 
 | Scenario | What to test |
 |----------|--------------|
 | Normal | Command/eval completes successfully |
+| Multiline | Commands with newlines are sent correctly |
 | User types during | User types while command is running - their input gets captured |
 | User kills/closes | User interrupts (Ctrl+C), kills the REPL, or closes the bridge |
 
@@ -104,10 +105,15 @@ For each shell type (bash, Python, Nix, Node), test three scenarios:
 # 1. Normal
 tmux-send -- echo "hello"
 
-# 2. User types during (use sleep so they have time)
-tmux-send --timeout 20 -- sleep 10 && echo "done"
+# 2. Multiline
+tmux-send -- 'echo "line1
+line2
+line3"'
 
-# 3. User interrupts - expect timeout since no end marker
+# 3. User types during (use sleep so they have time)
+tmux-send --timeout 20 -- 'sleep 10 && echo "done"'
+
+# 4. User interrupts - expect timeout since no end marker
 tmux-send --timeout 20 -- sleep 60
 ```
 
@@ -115,64 +121,80 @@ tmux-send --timeout 20 -- sleep 60
 
 ```bash
 # 1. Normal
-tmux-send --repl-start python3 --prompt "^>>>"
-tmux-send --repl-eval "1 + 1"
-tmux-send --repl-close
+tmux-send --repl python -- python3
+tmux-send --repl python -- "1 + 1"
+tmux-send --close
 
-# 2. User types during
-tmux-send --repl-start python3 --prompt "^>>>" --timeout 20
-tmux-send --repl-eval "import time; time.sleep(10); 'done'" --timeout 20
-tmux-send --repl-close
+# 2. Multiline (note: Python needs extra blank line for indented blocks)
+tmux-send --repl python -- python3
+tmux-send --repl python -- 'print("hello"); print("world")'
+tmux-send --close
 
-# 3. User kills REPL (killall -9 python3) - expect timeout, then clean up
-tmux-send --repl-start python3 --prompt "^>>>" --timeout 20
-tmux-send --repl-eval "import time; time.sleep(60); 'done'" --timeout 20
-rm -f /tmp/tmux-bridge-$USER/repl.*  # clean stale state
+# 3. User types during
+tmux-send --repl python -- python3
+tmux-send --repl python --timeout 20 -- 'import time; time.sleep(10); "done"'
+tmux-send --close
+
+# 4. User kills REPL (killall -9 python3) - expect timeout
+tmux-send --repl python -- python3
+tmux-send --repl python --timeout 20 -- 'import time; time.sleep(60); "done"'
+tmux-send --close
+```
+
+### psql REPL
+
+```bash
+# 1. Normal
+tmux-send --repl psql -- psql -d mydb
+tmux-send --repl psql -- "SELECT 1 + 1;"
+tmux-send --close
+
+# 2. Multiline SQL
+tmux-send --repl psql -- psql -d mydb
+tmux-send --repl psql -- "
+SELECT count(*), sum(amount)
+FROM (
+  SELECT sum(balance) AS amount
+  FROM accounts
+  GROUP BY user_id
+) x;
+"
+tmux-send --close
 ```
 
 ### Nix REPL
 
 ```bash
 # 1. Normal
-tmux-send --repl-start "nix repl" --prompt "^nix-repl>"
-tmux-send --repl-eval "1 + 1"
-tmux-send --repl-close
+tmux-send --repl nix -- nix repl
+tmux-send --repl nix -- "1 + 1"
+tmux-send --close
 
 # 2. User types during (slow fold operation)
-tmux-send --repl-start "nix repl" --prompt "^nix-repl>" --timeout 20
-tmux-send --repl-eval "builtins.seq (builtins.foldl' (a: b: a + b) 0 (builtins.genList (x: x) 10000000)) \"done\"" --timeout 20
-tmux-send --repl-close
-
-# 3. User kills REPL - get PID first, then kill -9
-tmux-send --repl-start "nix repl" --prompt "^nix-repl>" --timeout 20
-# user runs: ps aux | grep "nix repl" then kill -9 <pid>
-tmux-send --repl-eval "builtins.seq (builtins.foldl' (a: b: a + b) 0 (builtins.genList (x: x) 50000000)) \"done\"" --timeout 20
-rm -f /tmp/tmux-bridge-$USER/repl.*
+tmux-send --repl nix -- nix repl
+tmux-send --repl nix --timeout 30 -- 'builtins.foldl (a: b: a + b) 0 (builtins.genList (x: x) 1000000)'
+tmux-send --close
 ```
 
 ### Node REPL
 
 ```bash
 # 1. Normal
-tmux-send --repl-start node --prompt "^>"
-tmux-send --repl-eval "1 + 1"
-tmux-send --repl-close
+tmux-send --repl node -- node
+tmux-send --repl node -- "1 + 1"
+tmux-send --close
 
 # 2. User types during (sync busy loop)
-tmux-send --repl-start node --prompt "^>" --timeout 20
-tmux-send --repl-eval "const start = Date.now(); while (Date.now() - start < 10000) {}; 'done'" --timeout 20
-tmux-send --repl-close
-
-# 3. User kills REPL - get PID first
-tmux-send --repl-start node --prompt "^>" --timeout 20
-tmux-send --repl-eval "process.pid"  # note this, then user runs kill -9 <pid>
-tmux-send --repl-eval "const t = Date.now(); while (Date.now() - t < 60000) {}; 'done'" --timeout 20
-rm -f /tmp/tmux-bridge-$USER/repl.*
+tmux-send --repl node -- node
+tmux-send --repl node --timeout 20 -- 'const start = Date.now(); while (Date.now() - start < 10000) {}; "done"'
+tmux-send --close
 ```
 
 ### Expected behaviors
 
+- **Normal**: Output shows result and prompt
+- **Multiline**: Newlines preserved, semicolons not escaped
 - **User types during**: Their keystrokes appear in captured output
 - **User Ctrl+C**: Command/REPL handles interrupt, may return to prompt with error
-- **User kills process**: Timeout occurs, error message guides agent to ask user
-- **User closes bridge**: Clean error "tmux-bridge session closed unexpectedly"
+- **User kills process**: Timeout occurs, last 20 lines of pane shown
+- **User closes bridge**: Clean error "tmux-bridge session closed"

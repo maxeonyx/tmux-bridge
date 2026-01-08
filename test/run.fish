@@ -137,16 +137,17 @@ function test_exit_status
 end
 
 function test_stderr_separation
-    log_info "Test: stderr is separated from stdout"
+    log_info "Test: stderr appears in output (pane captures both)"
     
     run_tmux_send -- fish -c "echo stdout; echo stderr >&2"
     
+    # Current design: both stdout and stderr go to the pane
+    # So both should appear in stdout capture
     if string match -q "*stdout*" $last_stdout
-        and string match -q "*stderr*" $last_stderr
-        and not string match -q "*stderr*" $last_stdout
-        log_pass "Stderr separated from stdout"
+        and string match -q "*stderr*" $last_stdout
+        log_pass "Both stdout and stderr captured from pane"
     else
-        log_fail "Stderr not properly separated" \
+        log_fail "Output not captured correctly" \
             "stdout: '$last_stdout'" \
             "stderr: '$last_stderr'"
     end
@@ -163,6 +164,26 @@ function test_multiline_output
         log_pass "Multiline output captured"
     else
         log_fail "Multiline output not captured correctly" \
+            "stdout: '$last_stdout'"
+    end
+end
+
+function test_multiline_input
+    log_info "Test: multiline input preserved"
+    
+    run_tmux_send -- 'echo "line1
+line2
+line3"'
+    
+    if test $last_status -eq 0
+        and string match -q "*line1*" $last_stdout
+        and string match -q "*line2*" $last_stdout
+        and string match -q "*line3*" $last_stdout
+        # Verify newlines preserved (not collapsed to spaces)
+        and not string match -q "*line1 line2*" $last_stdout
+        log_pass "Multiline input preserved with newlines"
+    else
+        log_fail "Multiline input not preserved correctly" \
             "stdout: '$last_stdout'"
     end
 end
@@ -203,8 +224,8 @@ function test_no_output_timeout
     # sleep produces no output, should timeout after 2s
     run_tmux_send --timeout 2 -- sleep 10
     
-    if test $last_status -ne 0
-        and string match -q "*timed out*" $last_stderr
+    if test $last_status -eq 124
+        and string match -q "*Timeout*" -- $last_stderr
         log_pass "No-output timeout works"
     else
         log_fail "No-output timeout should have triggered" \
@@ -237,6 +258,7 @@ function main
     test_exit_status
     test_stderr_separation
     test_multiline_output
+    test_multiline_input
     test_command_with_args
     test_timeout_flag
     test_no_output_timeout

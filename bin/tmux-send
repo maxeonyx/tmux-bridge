@@ -227,10 +227,12 @@ if test "$mode" = repl
     tmux send-keys -l -t $session_name "$text_to_send"
     tmux send-keys -t $session_name Enter
     
-    # Wait for prompt
+    # Wait for prompt - must see content change before checking
     set -l start_time (date +%s)
     set -l last_output_time $start_time
-    set -l last_content ""
+    set -l initial_content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
+    set -l last_content $initial_content
+    set -l content_changed false
     
     while true
         set -l content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
@@ -242,19 +244,23 @@ if test "$mode" = repl
         if test "$content" != "$last_content"
             set last_output_time (date +%s)
             set last_content $content
+            set content_changed true
         end
         
-        # Check if last non-empty line matches prompt
-        set -l lines (string split \n -- $content)
-        for i in (seq (count $lines) -1 1)
-            set -l line $lines[$i]
-            if test -n "$line"
-                if string match -rq -- $repl_prompt $line
-                    # Output last 20 non-empty lines from pane
-                    tmux capture-pane -t $session_name -p | grep -v '^$' | tail -20
-                    exit 0
+        # Only check for prompt after content has changed
+        if test "$content_changed" = true
+            # Check if last non-empty line matches prompt
+            set -l lines (string split \n -- $content)
+            for i in (seq (count $lines) -1 1)
+                set -l line $lines[$i]
+                if test -n "$line"
+                    if string match -rq -- $repl_prompt $line
+                        # Output last 20 non-empty lines from pane
+                        tmux capture-pane -t $session_name -p | grep -v '^$' | tail -20
+                        exit 0
+                    end
+                    break
                 end
-                break
             end
         end
         
@@ -292,11 +298,22 @@ set -l cmd_id (random)(random)
 set -l start_marker "___START_"$cmd_id"___"
 set -l end_marker "___END_"$cmd_id"_"
 
-# Build command string - preserve newlines in single arg
+# Build command string - preserve newlines in single arg, quote multi-arg
 if test (count $args) -eq 1
     set cmd_string "$args[1]"
 else
-    set cmd_string (string join ' ' -- $args)
+    # Quote args that contain spaces or special chars
+    set -l quoted_args
+    for arg in $args
+        if string match -qr '[ ;&|<>()$`"'"'"']' -- $arg; or string match -q '*\\*' -- $arg
+            # Escape single quotes and wrap in single quotes
+            set -l escaped (string replace -a "'" "'\\''" -- $arg)
+            set quoted_args $quoted_args "'"$escaped"'"
+        else
+            set quoted_args $quoted_args $arg
+        end
+    end
+    set cmd_string (string join ' ' -- $quoted_args)
 end
 
 # Detect shell for exit status syntax
