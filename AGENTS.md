@@ -37,6 +37,16 @@ cp bin/tmux-bridge bin/tmux-send ~/.local/bin/
 
 No build step. No dependencies beyond tmux and fish.
 
+### Automated Tests
+
+Run the automated test suite before asking the user for manual testing:
+
+```fish
+./test/run.fish
+```
+
+This creates its own tmux session, runs all tests, and cleans up. All tests should pass before proceeding to manual testing with the user.
+
 ## Implementation Details
 
 ### Session naming

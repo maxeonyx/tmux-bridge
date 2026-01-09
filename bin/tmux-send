@@ -4,7 +4,7 @@
 #
 # COMMAND MODE (default):
 #   tmux-send [flags] -- command [args...]
-#   Runs a shell command with markers to capture stdout/stderr/exit status.
+#   Runs a shell command, captures output, returns exit status.
 #
 # REPL MODE:
 #   tmux-send --repl NAME [flags] -- text to send
@@ -19,6 +19,9 @@
 # FLAGS:
 #   --timeout N      No-output timeout in seconds (default: 10)
 #   --max-time N     Overall timeout in seconds (default: 120)
+#   --first N        Lines to show from start (default: 20)
+#   --last N         Lines to show from end (default: 20)
+#   --width N        Chars per line, 0 for unlimited (default: 0)
 #   --help           Show this help
 #   --repl-list      Show available REPL presets
 #
@@ -30,6 +33,9 @@
 # EXAMPLES:
 #   # Shell command (with exit status)
 #   tmux-send -- ls -la
+#
+#   # Limit output
+#   tmux-send --first 10 --last 30 -- make build
 #
 #   # Start a REPL
 #   tmux-send --repl psql -- psql -d mydb
@@ -43,6 +49,9 @@
 set -g session_name "tmux-bridge-$USER"
 set -g no_output_timeout 10
 set -g max_time 120
+set -g trunc_first 50
+set -g trunc_last 50
+set -g trunc_width 400
 
 #------------------------------------------------------------------------------
 # REPL Presets
@@ -75,6 +84,56 @@ function show_repl_list
     echo "Custom: tmux-send --prompt \"^myrepl>\" -- text"
 end
 
+#------------------------------------------------------------------------------
+# Output truncation helpers
+#------------------------------------------------------------------------------
+
+# Truncate a single line to max width
+function truncate_line --argument-names line width
+    if test $width -eq 0; or test (string length -- "$line") -le $width
+        echo "$line"
+    else
+        echo (string sub -l (math $width - 3) -- "$line")"..."
+    end
+end
+
+# Truncate output: first N lines + [...] + last M lines
+# Each line also truncated to W chars
+function truncate_output --argument-names first_count last_count width
+    set -l lines
+    while read -l line
+        set -a lines "$line"
+    end
+    
+    set -l total (count $lines)
+    
+    if test $total -le (math $first_count + $last_count)
+        # No truncation needed
+        for line in $lines
+            truncate_line "$line" $width
+        end
+    else
+        # Output first N
+        for i in (seq 1 $first_count)
+            truncate_line "$lines[$i]" $width
+        end
+        
+        # Truncation indicator
+        set -l skipped (math $total - $first_count - $last_count)
+        echo "[... $skipped lines truncated ...]"
+        
+        # Output last M
+        set -l start (math $total - $last_count + 1)
+        for i in (seq $start $total)
+            truncate_line "$lines[$i]" $width
+        end
+    end
+end
+
+#------------------------------------------------------------------------------
+# Argument parsing
+#------------------------------------------------------------------------------
+
 # Mode and options
 set -l mode command
 set -l repl_preset ""
@@ -97,6 +156,15 @@ while test $i -le (count $argv)
             case --max-time
                 set i (math $i + 1)
                 set max_time $argv[$i]
+            case --first
+                set i (math $i + 1)
+                set trunc_first $argv[$i]
+            case --last
+                set i (math $i + 1)
+                set trunc_last $argv[$i]
+            case --width
+                set i (math $i + 1)
+                set trunc_width $argv[$i]
             case --repl
                 set mode repl
                 set i (math $i + 1)
@@ -117,7 +185,7 @@ while test $i -le (count $argv)
             case --repl-list
                 set mode repl-list
             case --help
-                head -40 (status filename) | tail -38 | string replace -r '^# ?' ''
+                head -48 (status filename) | tail -46 | string replace -r '^# ?' ''
                 exit 0
             case --
                 set parsing_flags false
@@ -231,54 +299,49 @@ if test "$mode" = repl
         set text_to_send (string replace -a "{id}" "$expr_id" -- $text_to_send)
     end
     
-    # Capture initial state BEFORE sending
-    set -l initial_content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
-    
-    # Send with -l (literal mode)
     # Workaround: tmux -l strips trailing semicolons, so append a space
-    # (most shells/REPLs ignore trailing whitespace)
     if string match -qr ';$' -- "$text_to_send"
         set text_to_send "$text_to_send "
     end
     
+    # Capture pane state before sending
+    set -l before_content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
+    set -l before_lines (printf "%s\n" $before_content | grep -cv '^$')
+    
+    # Send the text
     tmux send-keys -t $session_name C-u
     sleep 0.1
     tmux send-keys -l -t $session_name "$text_to_send"
     tmux send-keys -t $session_name Enter
     
-    # Wait for prompt - must see content change before checking
+    # Poll capture-pane for prompt
     set -l start_time (date +%s)
     set -l last_output_time $start_time
-    set -l last_content $initial_content
-    set -l content_changed false
+    set -l last_content "$before_content"
     
     while true
+        # Capture current pane content
         set -l content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
         if test $status -ne 0
             echo "Error: tmux-bridge session closed." >&2
             exit 1
         end
         
+        # Track output activity
         if test "$content" != "$last_content"
             set last_output_time (date +%s)
-            set last_content $content
-            set content_changed true
+            set last_content "$content"
         end
         
-        # Only check for prompt after content has changed
-        if test "$content_changed" = true
-            # Check if last non-empty line matches prompt
-            set -l lines (string split \n -- $content)
-            for i in (seq (count $lines) -1 1)
-                set -l line $lines[$i]
-                if test -n "$line"
-                    if string match -rq -- $repl_prompt $line
-                        # Output last 20 non-empty lines from pane
-                        tmux capture-pane -t $session_name -p | grep -v '^$' | tail -20
-                        exit 0
-                    end
-                    break
-                end
+        # Check for prompt on last non-empty line
+        set -l last_line (printf "%s\n" $content | grep -v '^$' | tail -1)
+        if test -n "$last_line"
+            if string match -rq -- $repl_prompt "$last_line"
+                # Success - output new content with truncation
+                # Get lines after what we had before
+                set -l all_lines (printf "%s\n" $content | tail -n +$before_lines)
+                printf "%s\n" $all_lines | truncate_output $trunc_first $trunc_last $trunc_width
+                exit 0
             end
         end
         
@@ -290,8 +353,7 @@ if test "$mode" = repl
             echo "Timeout: no output for $no_output_timeout seconds. Sent Ctrl-C." >&2
             echo "Use --timeout N for slow operations." >&2
             echo "---" >&2
-            # Show last 20 non-empty lines from pane
-            tmux capture-pane -t $session_name -p | grep -v '^$' | tail -20
+            tmux capture-pane -t $session_name -p | tail -20
             exit 124
         end
         if test (math $now - $start_time) -ge $max_time
@@ -299,8 +361,7 @@ if test "$mode" = repl
             echo "---" >&2
             echo "Timeout: exceeded $max_time seconds. Sent Ctrl-C." >&2
             echo "---" >&2
-            # Show last 20 non-empty lines from pane
-            tmux capture-pane -t $session_name -p | grep -v '^$' | tail -20
+            tmux capture-pane -t $session_name -p | tail -20
             exit 124
         end
         
@@ -314,8 +375,7 @@ end
 
 set -l cmd_id (random)(random)
 set -l start_marker "___START_"$cmd_id"___"
-set -l end_marker_prefix "___END_"$cmd_id"_"
-set -l end_marker_suffix "___"
+set -l end_marker_pattern "___END_"$cmd_id"_[0-9]+___"
 
 # Build command string - preserve newlines in single arg, quote multi-arg
 if test (count $args) -eq 1
@@ -340,70 +400,70 @@ set -l shell_name (tmux display-message -t $session_name -p '#{pane_current_comm
 set -l exit_var '$?'
 test "$shell_name" = fish && set exit_var '$status'
 
-# Build inline command: echo START; command; echo END_$?___
-set -l inline_cmd "echo '$start_marker'; $cmd_string; echo '$end_marker_prefix'$exit_var'$end_marker_suffix'"
+# Build command: echo START; command; echo END_status
+set -l inline_cmd "echo '$start_marker'; $cmd_string; echo \"___END_"$cmd_id"_\""$exit_var"\"___\""
 
 # Send
 tmux send-keys -t $session_name C-u
 sleep 0.1
 tmux send-keys -t $session_name "$inline_cmd" Enter
 
-# Wait for completion
+# Poll capture-pane for completion
 set -l start_time (date +%s)
 set -l last_output_time $start_time
 set -l last_content ""
 
 while true
+    # Capture current pane content
     set -l content (tmux capture-pane -t $session_name -p -S - 2>/dev/null)
     if test $status -ne 0
         echo "Error: tmux-bridge session closed." >&2
         exit 1
     end
     
+    # Track output activity
     if test "$content" != "$last_content"
         set last_output_time (date +%s)
-        set last_content $content
+        set last_content "$content"
     end
     
-    # Check for END marker at start of line (not in command echo)
-    # Must include the exit status and closing ___ - don't match partial output
-    if string match -rq "(^|\n)___END_"$cmd_id"_\d+___" -- $content
-        set -l all_lines (string split \n -- $content)
-        set -l in_output false
-        set -l output_lines
-        set -l exit_status ""
-        
-        # Search for our specific markers
-        # Start marker must be exact match (the echo output, not the command)
-        # End marker: ___END_id_N___
-        for line in $all_lines
-            if test "$line" = "$start_marker"
-                set in_output true
-                continue
-            end
-            # End marker must start at beginning of line (not in a command echo)
-            if string match -rq "^___END_"$cmd_id"_\d+___" -- $line
-                set -l match (string match -r "___END_"$cmd_id"_(\d+)___" -- $line)
-                if test (count $match) -ge 2
-                    set exit_status $match[2]
-                end
-                break
-            end
-            if test "$in_output" = true
-                set output_lines $output_lines $line
-            end
-        end
-        
-        # Exit status must have been captured
+    # Check for END marker
+    set -l match (printf "%s\n" $content | grep -oE "$end_marker_pattern" | tail -1)
+    if test -n "$match"
+        # Extract exit status
+        set -l exit_status (string replace -r "___END_"$cmd_id"_([0-9]+)___" '$1' -- "$match")
         if test -z "$exit_status"
-            echo "Error: Failed to parse exit status from command output." >&2
-            echo "This is a bug in tmux-send." >&2
+            echo "Error: Failed to parse exit status." >&2
             exit 1
         end
         
-        for line in $output_lines
-            echo $line
+        # Get all lines between START and END markers (anchored to match exact lines)
+        set -l all_output (printf "%s\n" $content | sed -n "/^$start_marker\$/,/^$match\$/p" | tail -n +2 | head -n -1)
+        set -l total_lines (count $all_output)
+        
+        # Output with truncation
+        if test $total_lines -le (math $trunc_first + $trunc_last)
+            # No truncation needed - output all with line width truncation
+            for line in $all_output
+                truncate_line "$line" $trunc_width
+            end
+        else
+            # Output first N lines
+            for i in (seq 1 $trunc_first)
+                truncate_line "$all_output[$i]" $trunc_width
+            end
+            
+            # Truncation indicator
+            set -l skipped (math $total_lines - $trunc_first - $trunc_last)
+            echo "[... $skipped lines truncated ...]"
+            
+            # Output last M lines
+            set -l start_idx (math $total_lines - $trunc_last + 1)
+            for i in (seq $start_idx $total_lines)
+                truncate_line "$all_output[$i]" $trunc_width
+            end
         end
+        
         exit $exit_status
     end
     
@@ -416,8 +476,8 @@ while true
         echo "---" >&2
         echo "Timeout: no output for $no_output_timeout seconds." >&2
         echo "---" >&2
-        # Show last 20 non-empty lines from pane
-        tmux capture-pane -t $session_name -p | grep -v '^$' | tail -20
+        # Output what we have
+        tmux capture-pane -t $session_name -p | tail -20
         exit 124
     end
     
@@ -428,8 +488,7 @@ while true
         echo "---" >&2
         echo "Timeout: exceeded $max_time seconds." >&2
         echo "---" >&2
-        # Show last 20 non-empty lines from pane
-        tmux capture-pane -t $session_name -p | grep -v '^$' | tail -20
+        tmux capture-pane -t $session_name -p | tail -20
         exit 124
     end
     

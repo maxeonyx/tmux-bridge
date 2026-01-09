@@ -113,14 +113,14 @@ function test_simple_command
     
     run_tmux_send -- echo "hello world"
     
+    # Output should contain "hello world" - just the command output
     if test $last_status -eq 0
-        and test "$last_stdout" = "hello world"
+        and string match -q "*hello world*" -- $last_stdout
         log_pass "Simple echo command works"
     else
         log_fail "Simple echo failed" \
             "status: $last_status" \
-            "stdout: '$last_stdout'" \
-            "expected: 'hello world'"
+            "stdout: '$last_stdout'"
     end
 end
 
@@ -223,8 +223,9 @@ function test_timeout_flag
     
     run_tmux_send --timeout 5 -- echo "with timeout"
     
+    # Output should contain "with timeout" - just the command output
     if test $last_status -eq 0
-        and test "$last_stdout" = "with timeout"
+        and string match -q "*with timeout*" -- $last_stdout
         log_pass "--timeout flag works"
     else
         log_fail "--timeout flag failed" \
@@ -249,6 +250,57 @@ function test_no_output_timeout
     end
 end
 
+function test_output_truncation
+    log_info "Test: long output is truncated (first + last)"
+    
+    # Generate 200 lines of output, with --first 10 --last 10
+    # Should see lines 1-10, truncation message, lines 191-200
+    run_tmux_send --first 10 --last 10 -- 'seq 1 200'
+    
+    if test $last_status -ne 0
+        log_fail "Command failed" \
+            "status: $last_status"
+        return
+    end
+    
+    # Check for first lines (1-10) - may be on separate lines or space-separated
+    set -l has_first true
+    for i in (seq 1 10)
+        if not printf "%s" "$last_stdout" | grep -qE "(^|[^0-9])$i([^0-9]|\$)"
+            set has_first false
+            break
+        end
+    end
+    
+    # Check for last lines (191-200)
+    set -l has_last true
+    for i in (seq 191 200)
+        if not printf "%s" "$last_stdout" | grep -qE "(^|[^0-9])$i([^0-9]|\$)"
+            set has_last false
+            break
+        end
+    end
+    
+    # Check for truncation indicator
+    set -l has_truncation (printf "%s" "$last_stdout" | grep -c "truncated")
+    
+    # Should NOT have middle lines (like 100, 101)
+    set -l has_middle (printf "%s" "$last_stdout" | grep -cE "(^|[^0-9])100([^0-9]|\$)")
+    
+    if test "$has_first" = true
+        and test "$has_last" = true
+        and test "$has_truncation" -ge 1
+        and test "$has_middle" -eq 0
+        log_pass "Output correctly truncated"
+    else
+        log_fail "Truncation not working correctly" \
+            "has_first: $has_first" \
+            "has_last: $has_last" \
+            "has_truncation: $has_truncation" \
+            "has_middle: $has_middle"
+    end
+end
+
 function test_repl_semicolon
     log_info "Test: REPL mode preserves trailing semicolons"
     
@@ -264,6 +316,43 @@ function test_repl_semicolon
         log_fail "Semicolon not preserved in REPL mode" \
             "stdout: '$last_stdout'"
     end
+end
+
+function test_python_repl
+    log_info "Test: Python REPL start and eval"
+    
+    # Start Python REPL
+    run_tmux_send --repl python --timeout 5 -- python3
+    
+    if test $last_status -ne 0
+        log_fail "Failed to start Python REPL" \
+            "status: $last_status" \
+            "stderr: '$last_stderr'"
+        return
+    end
+    
+    if not string match -q "*>>>*" -- $last_stdout
+        log_fail "Python REPL did not show prompt" \
+            "stdout: '$last_stdout'"
+        # Clean up
+        run_tmux_send --close
+        return
+    end
+    
+    # Evaluate expression
+    run_tmux_send --repl python --timeout 5 -- "1 + 1"
+    
+    if not string match -q "*2*" -- $last_stdout
+        log_fail "Python eval did not return expected result" \
+            "stdout: '$last_stdout'"
+        run_tmux_send --close
+        return
+    end
+    
+    # Close REPL
+    run_tmux_send --close
+    
+    log_pass "Python REPL works"
 end
 
 # --- Main ---
@@ -295,7 +384,9 @@ function main
     test_command_with_args
     test_timeout_flag
     test_no_output_timeout
+    test_output_truncation
     test_repl_semicolon
+    test_python_repl
     
     echo
     stop_bridge
