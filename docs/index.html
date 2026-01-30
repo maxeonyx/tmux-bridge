@@ -100,14 +100,25 @@
       position: relative;
     }
     .codeblock-wide {
-      margin-left: -1rem;
-      margin-right: -1rem;
+      margin-left: calc(-2rem - 40px);
+      margin-right: calc(-2rem - 40px);
+      padding-left: calc(2rem + 40px);
+      padding-right: calc(2rem + 40px);
       border-radius: 0;
     }
-    @media (min-width: 760px) {
+    @media (max-width: 759px) {
       .codeblock-wide {
         margin-left: -2rem;
         margin-right: -2rem;
+        padding-left: 1.25rem;
+        padding-right: 1.25rem;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      .codeblock-wide::-webkit-scrollbar {
+        display: none;
       }
     }
     .codeblock .comment { color: var(--comment); }
@@ -119,12 +130,14 @@
       right: 0.5rem;
       background: var(--border);
       border: none;
-      border-radius: 4px;
-      padding: 0.25rem 0.5rem;
-      font-size: 0.75rem;
+      border-radius: 6px;
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 500;
       cursor: pointer;
       color: var(--fg);
-      opacity: 0.7;
+      opacity: 0.8;
+      transition: opacity 0.15s;
     }
     .copy-btn:hover { opacity: 1; }
     .skill-block {
@@ -216,13 +229,15 @@ Use `<span class="cmd">tb</span>` for interactive commands (sudo, auth) or backg
 If "No session specified", ask user to run `<span class="cmd">tb start</span>`.
 
 <span class="comment"># Install</span>
-<span class="cmd">curl</span> -Lo ~/.local/bin/tb <span class="str">https://github.com/.../tb-linux-x86_64</span> && <span class="cmd">chmod</span> +x ~/.local/bin/tb
+Curl + chmod the binary to ~/.local/bin from github maxeonyx/tmux-bridge latest release.
 
-<span class="comment"># Usage</span>
-<span class="cmd">tb run</span> <span class="str">--</span> sudo apt install foo   <span class="comment"># Synchronous</span>
-<span class="cmd">tb launch</span> <span class="str">--</span> cargo build          <span class="comment"># Background task</span>
-<span class="cmd">tb check</span> t1                        <span class="comment"># Check status</span>
-<span class="cmd">tb done</span> t1                         <span class="comment"># Close pane</span></div>
+<span class="comment"># Synchronous</span>
+<span class="cmd">tb run</span> <span class="str">--</span> sudo apt install foo
+
+<span class="comment"># Background tasks</span>
+<span class="cmd">tb launch</span> <span class="str">--</span> cargo build   <span class="comment"># Start background task</span>
+<span class="cmd">tb check</span> t1                 <span class="comment"># Check status</span>
+<span class="cmd">tb done</span> t1                  <span class="comment"># Close pane</span></div>
 
     <footer>
       <a href="https://github.com/maxeonyx/tmux-bridge">GitHub</a>
