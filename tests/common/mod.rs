@@ -110,8 +110,13 @@ fn extract_task_id(output: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Kill all tb-* sessions (for test isolation)
+/// Kill all tb-* sessions and test runner sessions (for test isolation)
 pub fn cleanup_all_tb_sessions() {
+    // Also kill the test runner session if it exists
+    let _ = StdCommand::new("tmux")
+        .args(["kill-session", "-t", "tb-test-runner"])
+        .output();
+
     if let Ok(output) = StdCommand::new("tmux")
         .args(["list-sessions", "-F", "#{session_name}"])
         .output()
