@@ -10,7 +10,11 @@
       --fg: #1a1a1a;
       --muted: #666;
       --border: #e0e0e0;
-      --code-bg: #f0f0f0;
+      --code-bg: #f5f5f5;
+      --key: #d32f2f;
+      --str: #388e3c;
+      --cmd: #1565c0;
+      --comment: #757575;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -19,6 +23,10 @@
         --muted: #888;
         --border: #2a2a2a;
         --code-bg: #1a1a1a;
+        --key: #f48fb1;
+        --str: #a5d6a7;
+        --cmd: #90caf9;
+        --comment: #757575;
       }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -56,12 +64,7 @@
       border-radius: 8px;
       border: 1px solid var(--border);
       margin-bottom: 3rem;
-    }
-    .screenshot-light { display: block; }
-    .screenshot-dark { display: none; }
-    @media (prefers-color-scheme: dark) {
-      .screenshot-light { display: none; }
-      .screenshot-dark { display: block; }
+      display: block;
     }
     .commands {
       display: grid;
@@ -88,58 +91,64 @@
     .codeblock {
       background: var(--code-bg);
       border-radius: 6px;
-      padding: 1.25rem;
+      padding: 1rem 1.25rem;
       font-family: "SF Mono", "Fira Code", "Consolas", monospace;
       font-size: 0.85rem;
       margin-bottom: 1.5rem;
       overflow-x: auto;
       white-space: pre;
+      position: relative;
     }
-    .codeblock .comment { color: var(--muted); }
-    .skill {
-      border: 1px solid var(--border);
+    .codeblock-wide {
+      margin-left: -1rem;
+      margin-right: -1rem;
+      border-radius: 0;
+    }
+    @media (min-width: 760px) {
+      .codeblock-wide {
+        margin-left: -2rem;
+        margin-right: -2rem;
+      }
+    }
+    .codeblock .comment { color: var(--comment); }
+    .codeblock .cmd { color: var(--cmd); font-weight: 500; }
+    .codeblock .str { color: var(--str); }
+    .copy-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      background: var(--border);
+      border: none;
+      border-radius: 4px;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      color: var(--fg);
+      opacity: 0.7;
+    }
+    .copy-btn:hover { opacity: 1; }
+    .skill-block {
+      background: var(--code-bg);
       border-radius: 6px;
-      padding: 1.5rem;
+      padding: 1rem 1.25rem;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 0.8rem;
       margin-bottom: 1.5rem;
-    }
-    .skill-header {
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-bottom: 1rem;
-    }
-    .skill-yaml {
-      background: var(--code-bg);
-      border-radius: 4px;
-      padding: 0.75rem 1rem;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      font-size: 0.8rem;
-      margin-bottom: 1rem;
-      border-bottom: 1px solid var(--border);
-    }
-    .skill-yaml .key { color: #0550ae; }
-    .skill-yaml .str { color: #0a3069; }
-    @media (prefers-color-scheme: dark) {
-      .skill-yaml .key { color: #79c0ff; }
-      .skill-yaml .str { color: #a5d6ff; }
-    }
-    .skill pre {
-      background: var(--code-bg);
-      border-radius: 4px;
-      padding: 1rem;
-      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
-      font-size: 0.8rem;
       overflow-x: auto;
-      margin: 0;
+      white-space: pre;
+      line-height: 1.5;
     }
-    .skill p {
+    .skill-block .key { color: var(--key); font-weight: 600; }
+    .skill-block .str { color: var(--str); }
+    .skill-block .comment { color: var(--comment); }
+    .skill-block .cmd { color: var(--cmd); }
+    .note {
+      color: var(--muted);
       font-size: 0.9rem;
       margin-bottom: 1rem;
     }
-    .skill p:last-of-type {
-      margin-bottom: 1rem;
-      color: var(--muted);
-      font-size: 0.85rem;
+    .note a {
+      color: var(--fg);
     }
     footer {
       color: var(--muted);
@@ -161,8 +170,8 @@
     <p class="tagline">Let AI agents run commands in your terminal.</p>
 
     <picture>
-      <img src="screenshot-light.png" alt="tmux-bridge in action" class="screenshot screenshot-light">
-      <img src="screenshot-dark.png" alt="tmux-bridge in action" class="screenshot screenshot-dark">
+      <source srcset="screenshot-dark.png" media="(prefers-color-scheme: dark)">
+      <img src="screenshot-light.png" alt="tmux-bridge in action" class="screenshot">
     </picture>
 
     <div class="commands">
@@ -185,37 +194,57 @@
     </div>
 
     <h2>Install</h2>
-    <div class="codeblock"><span class="comment"># Download binary (Linux x86_64)</span>
-curl -L https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-x86_64 -o ~/.local/bin/tb
-chmod +x ~/.local/bin/tb</div>
+    <div class="codeblock codeblock-wide" id="install-block"><span class="comment"># Linux x86_64</span>
+<span class="cmd">curl</span> -Lo ~/.local/bin/tb <span class="str">https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-x86_64</span>
+<span class="cmd">chmod</span> +x ~/.local/bin/tb<button class="copy-btn" onclick="copyInstall()">Copy</button></div>
 
     <h2>Agent Skill</h2>
-    <p style="color: var(--muted); margin-bottom: 1rem;">For <a href="https://opencode.ai" style="color: var(--fg);">OpenCode</a> and compatible agents.</p>
+    <p class="note">For <a href="https://opencode.ai">OpenCode</a> and compatible agents.</p>
     
-    <div class="codeblock"><span class="comment"># Install skill</span>
-mkdir -p ~/.config/opencode/skills/tmux-bridge
-curl -sL https://maxeonyx.github.io/tmux-bridge/SKILL.md \
-  -o ~/.config/opencode/skills/tmux-bridge/SKILL.md</div>
+    <div class="codeblock" id="skill-install-block"><span class="cmd">mkdir</span> -p ~/.config/opencode/skills/tmux-bridge
+<span class="cmd">curl</span> -sLo ~/.config/opencode/skills/tmux-bridge/SKILL.md \
+     <span class="str">https://maxeonyx.github.io/tmux-bridge/SKILL.md</span><button class="copy-btn" onclick="copySkillInstall()">Copy</button></div>
 
-    <div class="skill">
-      <div class="skill-yaml"><span class="comment">---</span>
+    <div class="skill-block"><span class="comment">---</span>
 <span class="key">name:</span> <span class="str">tmux-bridge</span>
 <span class="key">description:</span> <span class="str">If a task requires interactive-only steps such as authentication, or background commands</span>
-<span class="comment">---</span></div>
-      <p>Use <code>tb</code> for commands requiring user interaction (sudo, password prompts, confirmations) or long-running background tasks.</p>
-      <p>If you see "No session specified", ask the user to start one with <code>tb start</code>.</p>
-<pre><span class="comment"># Synchronous command (waits for completion)</span>
-tb run -- sudo apt install foo
+<span class="comment">---</span>
 
-<span class="comment"># Background task (returns immediately)</span>
-tb launch -- cargo build --release
-tb check t1    <span class="comment"># Check status</span>
-tb done t1     <span class="comment"># Close when finished</span></pre>
-    </div>
+<span class="comment"># tmux-bridge</span>
+
+Use `<span class="cmd">tb</span>` for interactive commands (sudo, auth) or background tasks.
+If "No session specified", ask user to run `<span class="cmd">tb start</span>`.
+
+<span class="comment"># Install</span>
+<span class="cmd">curl</span> -Lo ~/.local/bin/tb <span class="str">https://github.com/.../tb-linux-x86_64</span> && <span class="cmd">chmod</span> +x ~/.local/bin/tb
+
+<span class="comment"># Usage</span>
+<span class="cmd">tb run</span> <span class="str">--</span> sudo apt install foo   <span class="comment"># Synchronous</span>
+<span class="cmd">tb launch</span> <span class="str">--</span> cargo build          <span class="comment"># Background task</span>
+<span class="cmd">tb check</span> t1                        <span class="comment"># Check status</span>
+<span class="cmd">tb done</span> t1                         <span class="comment"># Close pane</span></div>
 
     <footer>
       <a href="https://github.com/maxeonyx/tmux-bridge">GitHub</a>
     </footer>
   </div>
+
+  <script>
+    function copyInstall() {
+      const text = `curl -Lo ~/.local/bin/tb https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-x86_64
+chmod +x ~/.local/bin/tb`;
+      navigator.clipboard.writeText(text);
+      event.target.textContent = 'Copied!';
+      setTimeout(() => event.target.textContent = 'Copy', 1500);
+    }
+    function copySkillInstall() {
+      const text = `mkdir -p ~/.config/opencode/skills/tmux-bridge
+curl -sLo ~/.config/opencode/skills/tmux-bridge/SKILL.md \\
+     https://maxeonyx.github.io/tmux-bridge/SKILL.md`;
+      navigator.clipboard.writeText(text);
+      event.target.textContent = 'Copied!';
+      setTimeout(() => event.target.textContent = 'Copy', 1500);
+    }
+  </script>
 </body>
 </html>
