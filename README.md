@@ -1,13 +1,15 @@
 # tmux-bridge
 
-A Rust CLI that allows AI agents to inject commands into an interactive terminal session controlled by a human user.
+A CLI that lets AI agents run commands in your interactive terminal session.
+
+**Site:** https://maxeonyx.github.io/tmux-bridge/
 
 ## Why?
 
-AI coding agents need to run commands, but some commands require human interaction:
+AI agents need to run commands, but some require human interaction:
 
 - `sudo` requiring a password
-- Commands that need credential caching (`sudo -v`)
+- Browser-based authentication flows
 - Interactive setup wizards
 - Long-running builds that outlast agent timeouts
 
@@ -18,11 +20,12 @@ AI coding agents need to run commands, but some commands require human interacti
 Requires: `tmux`
 
 ```bash
-# From source
-cargo install --path .
+# Download binary (Linux x86_64)
+curl -L https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-x86_64 \
+  -o ~/.local/bin/tb && chmod +x ~/.local/bin/tb
 
-# Or download a release binary
-# (coming soon)
+# Or build from source
+cargo install --git https://github.com/maxeonyx/tmux-bridge
 ```
 
 ## Quick Start
@@ -33,44 +36,21 @@ cargo install --path .
 $ tb start
 Started session 'a7x'
 
-Tell your agent:
-  export TB_SESSION=a7x
+Tell your agent: export TB_SESSION=a7x
 ```
 
 ### Agent: Run commands
 
 ```bash
-# Set the session (or use --session flag)
 export TB_SESSION=a7x
 
-# Run a command synchronously
-$ tb run -- ls -la
-drwxr-xr-x  5 user user 4096 Jan 30 10:00 .
--rw-r--r--  1 user user  123 Jan 30 09:00 foo.txt
+# Synchronous command
+tb run -- cargo build
 
-# Run with custom timeout
-$ tb run --timeout 60 -- make build
-```
-
-### Agent: Background tasks
-
-```bash
-# Start a long-running task
-$ tb launch -- npm run build
-Task t1 started.
-Check status with: tb check t1
-
-# Check on it later
-$ tb check t1
-[build output...]
-
-# When done
-Task t1 complete (exit 0).
-Close pane with: tb done t1
-
-# Clean up
-$ tb done t1
-Closed task t1.
+# Background task
+tb launch -- npm run dev
+tb check t1
+tb done t1
 ```
 
 ## Commands
@@ -78,55 +58,20 @@ Closed task t1.
 | Command | Purpose |
 |---------|---------|
 | `tb start` | Human starts session, displays ID |
-| `tb run` | Run command synchronously |
+| `tb run` | Run command synchronously, wait for output |
 | `tb launch` | Start background task in split pane |
-| `tb check` | Check background task status |
+| `tb check` | Check background task status/output |
 | `tb done` | Close background task pane |
 
-## Session Management
+## Agent Skill
 
-Sessions get short unique IDs like `a7x`:
-- First letter: sequential (`a`, `b`, `c`...)
-- Next two chars: random for uniqueness
-
-Multiple sessions can run simultaneously. The agent specifies which to use via:
-- `TB_SESSION` environment variable
-- `--session` flag on any command
-
-## Background Task Layout
-
-Up to 6 concurrent background tasks, displayed as split panes:
-
-```
-┌─────────────────────────────┬─────────────────────────────┐
-│ [task t1]                   │ [task t4]                   │
-├─────────────────────────────┼─────────────────────────────┤
-│ [task t2]                   │ [task t5]                   │
-├─────────────────────────────┼─────────────────────────────┤
-│ [task t3]                   │ [task t6]                   │
-├─────────────────────────────┴─────────────────────────────┤
-│ [main session]                                            │
-└───────────────────────────────────────────────────────────┘
-```
-
-## Timeouts
+For [OpenCode](https://opencode.ai) and compatible agents, install the skill:
 
 ```bash
-# Default: 10s no-output timeout, 120s overall timeout
-$ tb run -- make build
-
-# Increase no-output timeout for slow commands
-$ tb run --timeout 60 -- make build
-
-# Increase overall timeout for long-running commands
-$ tb run --max-time 600 -- ./slow-test.sh
+mkdir -p ~/.config/opencode/skills/tmux-bridge
+curl -sL https://maxeonyx.github.io/tmux-bridge/SKILL.md \
+  -o ~/.config/opencode/skills/tmux-bridge/SKILL.md
 ```
-
-If a timeout triggers, `tb run` sends SIGINT, waits 3 seconds, then SIGQUIT.
-
-## Status
-
-⚠️ **Work in progress** - all 47 E2E tests are failing. See [TODO.md](TODO.md) for implementation status.
 
 ## License
 

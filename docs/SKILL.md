@@ -5,20 +5,21 @@ description: If a task requires interactive-only steps such as authentication, o
 
 # tmux-bridge
 
-Use `tb` for commands requiring user interaction (sudo, password prompts, confirmations) or long-running background tasks.
+Use `tb` for interactive commands (sudo, auth) or background tasks.
+If "No session specified", ask user to run `tb start`.
 
-If you see "No session specified", ask the user to start one with `tb start`.
-
-## Quick Reference
+## Install
 
 ```bash
-# Synchronous command (waits for completion)
-tb run -- sudo apt install foo
-
-# Background task (returns immediately)
-tb launch -- cargo build --release
-tb check t1    # Check status
-tb done t1     # Close when finished
+curl -Lo ~/.local/bin/tb https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-x86_64
+chmod +x ~/.local/bin/tb
 ```
 
-The commands themselves provide detailed help and next-step hints.
+## Usage
+
+```bash
+tb run -- sudo apt install foo   # Synchronous
+tb launch -- cargo build          # Background task
+tb check t1                        # Check status
+tb done t1                         # Close pane
+```
