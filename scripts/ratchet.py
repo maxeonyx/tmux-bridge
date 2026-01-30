@@ -20,6 +20,145 @@ from pathlib import Path
 
 STATUS_FILE = Path(".test-status.json")
 
+# Git history checks start from this commit (exclusive).
+# Tests that transitioned before this commit are grandfathered in.
+# Set to None to check all history, or a commit hash to start from.
+HISTORY_BASELINE_COMMIT = "c51854f"  # TDD enforcement enabled after this commit
+
+
+def check_git_history() -> list[str]:
+    """
+    Check that all tests followed the proper TDD state machine:
+    (not in file) -> pending -> passing
+
+    Each transition must happen in a SEPARATE commit.
+    Returns list of errors for tests that violated this rule.
+
+    Only checks commits after HISTORY_BASELINE_COMMIT (if set).
+    """
+    errors = []
+
+    # Get all commits that touched the status file, oldest first
+    if HISTORY_BASELINE_COMMIT:
+        # Only get commits after the baseline
+        result = subprocess.run(
+            [
+                "git",
+                "log",
+                "--reverse",
+                "--pretty=format:%H",
+                f"{HISTORY_BASELINE_COMMIT}..HEAD",
+                "--",
+                str(STATUS_FILE),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    else:
+        result = subprocess.run(
+            ["git", "log", "--reverse", "--pretty=format:%H", "--", str(STATUS_FILE)],
+            capture_output=True,
+            text=True,
+        )
+
+    if result.returncode != 0:
+        # Not a git repo or no history
+        return []
+
+    commits = [c for c in result.stdout.strip().split("\n") if c]
+    if len(commits) < 1:
+        # Need at least 1 commit to check
+        return []
+
+    # Get the baseline state (state at HISTORY_BASELINE_COMMIT, or empty if no baseline)
+    baseline_state: dict[str, str] = {}
+    if HISTORY_BASELINE_COMMIT:
+        result = subprocess.run(
+            ["git", "show", f"{HISTORY_BASELINE_COMMIT}:{STATUS_FILE}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            try:
+                data = json.loads(result.stdout)
+                for category in ["tests", "checks"]:
+                    for name, state in data.get(category, {}).items():
+                        full_name = f"{category}::{name}"
+                        baseline_state[full_name] = state
+            except json.JSONDecodeError:
+                pass
+
+    # Track the state of each test across commits
+    # test_name -> list of (commit, state) tuples
+    test_history: dict[str, list[tuple[str, str]]] = {}
+
+    # Initialize with baseline state
+    for name, state in baseline_state.items():
+        test_history[name] = [("baseline", state)]
+
+    for commit in commits:
+        # Get the status file content at this commit
+        result = subprocess.run(
+            ["git", "show", f"{commit}:{STATUS_FILE}"],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            continue
+
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            continue
+
+        # Collect all tests from all categories
+        for category in ["tests", "checks"]:
+            for name, state in data.get(category, {}).items():
+                full_name = f"{category}::{name}"
+                if full_name not in test_history:
+                    test_history[full_name] = []
+                test_history[full_name].append((commit[:8], state))
+
+    # Check each test's history for violations
+    for test_name, history in test_history.items():
+        # Skip tests that existed at baseline
+        if history and history[0][0] == "baseline":
+            continue
+
+        # Deduplicate consecutive same states
+        transitions = []
+        for commit, state in history:
+            if not transitions or transitions[-1][1] != state:
+                transitions.append((commit, state))
+
+        # Check for invalid transitions
+        for i, (commit, state) in enumerate(transitions):
+            if i == 0:
+                # First appearance - must be 'pending'
+                if state == "passing":
+                    # Get short name for display
+                    display_name = (
+                        test_name.split("::", 1)[1] if "::" in test_name else test_name
+                    )
+                    errors.append(
+                        f"TDD violation: {display_name} was added as 'passing' "
+                        f"(commit {commit}). Tests must be added as 'pending' first."
+                    )
+            else:
+                prev_state = transitions[i - 1][1]
+                # Only valid transition is pending -> passing
+                if prev_state == "passing" and state == "pending":
+                    display_name = (
+                        test_name.split("::", 1)[1] if "::" in test_name else test_name
+                    )
+                    errors.append(
+                        f"Invalid transition: {display_name} went from 'passing' to 'pending' "
+                        f"(commit {commit}). This should not happen."
+                    )
+
+    return errors
+
 
 def run_cargo_test() -> dict[str, bool]:
     """Run cargo test and parse results. Returns {test_name: passed}."""
@@ -181,6 +320,10 @@ def main():
         check_results, saved.get("checks", {}), "checks"
     )
     all_errors.extend(check_errors)
+
+    # Check git history for TDD violations
+    history_errors = check_git_history()
+    all_errors.extend(history_errors)
 
     # Save updated status
     new_status = {"tests": new_tests, "checks": new_checks}
