@@ -18,22 +18,27 @@ pub struct TestSession {
 }
 
 impl TestSession {
-    /// Start a new session via `tb start` and return a handle.
+    /// Start a new session directly via tmux and return a handle.
     /// Cleans up any existing tb-* sessions first.
+    ///
+    /// Note: We create sessions directly with tmux rather than `tb start`
+    /// because `tb start` requires an interactive terminal.
     pub fn new() -> Self {
         cleanup_all_tb_sessions();
 
-        let output = Command::cargo_bin("tb")
-            .unwrap()
-            .arg("start")
-            .output()
-            .expect("Failed to run tb start");
+        // Generate a simple test session ID
+        let id = format!("test{}", std::process::id() % 1000);
+        let tmux_name = format!("tb-{}", id);
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Create session directly with tmux
+        let status = StdCommand::new("tmux")
+            .args(["new-session", "-d", "-s", &tmux_name])
+            .status()
+            .expect("Failed to create tmux session");
 
-        // Extract session ID from "Started session 'xyz'"
-        let id = extract_session_id(&stdout)
-            .expect(&format!("Could not extract session ID from: {}", stdout));
+        if !status.success() {
+            panic!("Failed to create tmux session {}", tmux_name);
+        }
 
         TestSession { id }
     }

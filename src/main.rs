@@ -123,6 +123,14 @@ fn main() {
 }
 
 fn cmd_start(session: Option<String>) -> Result<(), String> {
+    // tb start is for humans only - must be run interactively
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        return Err("tb start must be run in an interactive terminal.\n\n\
+             Ask the user to run: tb start"
+            .to_string());
+    }
+
     let session_id = match session {
         Some(explicit_id) => {
             // Check if session already exists
@@ -148,27 +156,17 @@ fn cmd_start(session: Option<String>) -> Result<(), String> {
     println!("Started session '{}'", session_id);
     println!();
     println!("Tell your agent: export TB_SESSION={}", session_id);
+    println!();
 
-    // If running interactively, attach to the session
-    // Otherwise, tell the user how to attach manually
-    use std::io::IsTerminal;
-    if std::io::stdout().is_terminal() {
-        println!();
-        use std::io::Write;
-        let _ = std::io::stdout().flush();
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
 
-        // exec replaces this process with tmux attach
-        use std::os::unix::process::CommandExt;
-        let err = Command::new("tmux")
-            .args(["attach-session", "-t", &tmux_name])
-            .exec();
-        return Err(format!("Failed to attach to session: {}", err));
-    } else {
-        println!();
-        println!("Run: tmux attach -t {}", tmux_name);
-    }
-
-    Ok(())
+    // exec replaces this process with tmux attach
+    use std::os::unix::process::CommandExt;
+    let err = Command::new("tmux")
+        .args(["attach-session", "-t", &tmux_name])
+        .exec();
+    Err(format!("Failed to attach to session: {}", err))
 }
 
 /// Check if a session with the given ID already exists

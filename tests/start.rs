@@ -1,13 +1,77 @@
 //! End-to-end black-box tests for `tb start`
 //!
-//! These tests verify the behavior of the `tb start` command by spawning
-//! the binary and checking stdout/stderr/exit codes.
+//! These tests verify the behavior of the `tb start` command.
+//! Since `tb start` requires an interactive terminal, most tests run
+//! the command inside a temporary tmux session to provide a TTY.
 
 mod common;
 
 use assert_cmd::Command;
 use common::{cleanup_all_tb_sessions, cleanup_session, session_exists};
 use predicates::prelude::*;
+use std::process::Command as StdCommand;
+use std::thread::sleep;
+use std::time::Duration;
+
+/// Run `tb start` inside a temporary tmux session and return the pane content.
+/// This provides `tb start` with a real TTY.
+///
+/// Note: Does NOT clean up tb-* sessions - caller is responsible for cleanup.
+/// The test runner session (tb-test-runner) is always cleaned up.
+fn run_tb_start_in_tmux(args: &[&str]) -> (bool, String) {
+    let test_session = "tb-test-runner";
+
+    // Clean up any previous test runner session
+    let _ = StdCommand::new("tmux")
+        .args(["kill-session", "-t", test_session])
+        .output();
+
+    // Create a session to run tb start in
+    let status = StdCommand::new("tmux")
+        .args(["new-session", "-d", "-s", test_session])
+        .status()
+        .expect("Failed to create test tmux session");
+    assert!(status.success(), "Failed to create test tmux session");
+
+    // Build the tb command
+    let tb_path = assert_cmd::cargo::cargo_bin("tb");
+    let tb_cmd = if args.is_empty() {
+        format!("{} start", tb_path.display())
+    } else {
+        format!("{} start {}", tb_path.display(), args.join(" "))
+    };
+
+    // Send the command to the tmux session
+    StdCommand::new("tmux")
+        .args(["send-keys", "-t", test_session, &tb_cmd, "Enter"])
+        .status()
+        .expect("Failed to send keys to tmux");
+
+    // Wait for the command to execute and output to appear
+    sleep(Duration::from_millis(500));
+
+    // Capture the pane content (this gets the output before tb start execs into attach)
+    let output = StdCommand::new("tmux")
+        .args(["capture-pane", "-t", test_session, "-p"])
+        .output()
+        .expect("Failed to capture pane");
+
+    let content = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // Check if the tb-test-runner session still exists (it might have been replaced)
+    let success = StdCommand::new("tmux")
+        .args(["has-session", "-t", test_session])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    // Clean up test runner session only
+    let _ = StdCommand::new("tmux")
+        .args(["kill-session", "-t", test_session])
+        .output();
+
+    (success, content)
+}
 
 mod start {
     use super::*;
@@ -16,20 +80,13 @@ mod start {
     fn creates_tmux_session_with_auto_id() {
         cleanup_all_tb_sessions();
 
-        let output = Command::cargo_bin("tb")
-            .unwrap()
-            .arg("start")
-            .output()
-            .unwrap();
+        let (_, content) = run_tb_start_in_tmux(&[]);
 
-        assert!(output.status.success(), "tb start should succeed");
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // Extract session ID and verify session exists
-        if let Some(start) = stdout.find("'") {
-            if let Some(end) = stdout[start + 1..].find("'") {
-                let session_id = &stdout[start + 1..start + 1 + end];
+        // Extract session ID from "Started session 'xyz'"
+        if let Some(start) = content.find("Started session '") {
+            let rest = &content[start + 17..];
+            if let Some(end) = rest.find("'") {
+                let session_id = &rest[..end];
                 assert!(
                     session_exists(session_id),
                     "Session '{}' should exist after tb start",
@@ -39,28 +96,22 @@ mod start {
                 return;
             }
         }
-        panic!("Could not extract session ID from output: {}", stdout);
+        panic!("Could not extract session ID from output: {}", content);
     }
 
     #[test]
     fn session_id_format_is_letter_plus_two_alphanumeric() {
         cleanup_all_tb_sessions();
 
-        let output = Command::cargo_bin("tb")
-            .unwrap()
-            .arg("start")
-            .output()
-            .unwrap();
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let (_, content) = run_tb_start_in_tmux(&[]);
 
         // Should contain a session ID matching pattern [a-z][a-z0-9][a-z0-9]
         assert!(
             predicate::str::is_match(r"'[a-z][a-z0-9]{2}'")
                 .unwrap()
-                .eval(&stdout),
+                .eval(&content),
             "Output should contain session ID in format 'X##' (e.g., 'a7x'): {}",
-            stdout
+            content
         );
 
         cleanup_all_tb_sessions();
@@ -70,12 +121,13 @@ mod start {
     fn output_includes_export_instruction() {
         cleanup_all_tb_sessions();
 
-        Command::cargo_bin("tb")
-            .unwrap()
-            .arg("start")
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("export TB_SESSION="));
+        let (_, content) = run_tb_start_in_tmux(&[]);
+
+        assert!(
+            content.contains("export TB_SESSION="),
+            "Output should contain export instruction: {}",
+            content
+        );
 
         cleanup_all_tb_sessions();
     }
@@ -84,12 +136,13 @@ mod start {
     fn output_includes_tell_your_agent_message() {
         cleanup_all_tb_sessions();
 
-        Command::cargo_bin("tb")
-            .unwrap()
-            .arg("start")
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("Tell your agent:"));
+        let (_, content) = run_tb_start_in_tmux(&[]);
+
+        assert!(
+            content.contains("Tell your agent:"),
+            "Output should contain 'Tell your agent:': {}",
+            content
+        );
 
         cleanup_all_tb_sessions();
     }
@@ -99,32 +152,31 @@ mod start {
         cleanup_all_tb_sessions();
 
         // Start first session
-        let output1 = Command::cargo_bin("tb")
-            .unwrap()
-            .arg("start")
-            .output()
-            .unwrap();
-        let stdout1 = String::from_utf8_lossy(&output1.stdout);
+        let (_, content1) = run_tb_start_in_tmux(&[]);
+
+        // Extract first letter
+        let extract_first_letter = |s: &str| -> Option<char> {
+            s.find("Started session '")
+                .and_then(|i| s.chars().nth(i + 17))
+        };
+
+        let letter1 = extract_first_letter(&content1);
+        assert_eq!(
+            letter1,
+            Some('a'),
+            "First session should start with 'a': {}",
+            content1
+        );
 
         // Start second session
-        let output2 = Command::cargo_bin("tb")
-            .unwrap()
-            .arg("start")
-            .output()
-            .unwrap();
-        let stdout2 = String::from_utf8_lossy(&output2.stdout);
-
-        // Extract first letter of each session ID
-        let extract_first_letter =
-            |s: &str| -> Option<char> { s.find("'").and_then(|i| s.chars().nth(i + 1)) };
-
-        let letter1 = extract_first_letter(&stdout1);
-        let letter2 = extract_first_letter(&stdout2);
-
-        assert!(letter1.is_some(), "First session should have an ID");
-        assert!(letter2.is_some(), "Second session should have an ID");
-        assert_eq!(letter1, Some('a'), "First session should start with 'a'");
-        assert_eq!(letter2, Some('b'), "Second session should start with 'b'");
+        let (_, content2) = run_tb_start_in_tmux(&[]);
+        let letter2 = extract_first_letter(&content2);
+        assert_eq!(
+            letter2,
+            Some('b'),
+            "Second session should start with 'b': {}",
+            content2
+        );
 
         cleanup_all_tb_sessions();
     }
@@ -133,13 +185,13 @@ mod start {
     fn explicit_session_id_is_used() {
         cleanup_all_tb_sessions();
 
-        Command::cargo_bin("tb")
-            .unwrap()
-            .args(["start", "--session", "test123"])
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("test123"));
+        let (_, content) = run_tb_start_in_tmux(&["--session", "test123"]);
 
+        assert!(
+            content.contains("test123"),
+            "Output should contain explicit session ID: {}",
+            content
+        );
         assert!(session_exists("test123"), "Session 'test123' should exist");
 
         cleanup_session("test123");
@@ -150,19 +202,25 @@ mod start {
         cleanup_all_tb_sessions();
 
         // Start first session with explicit ID
-        Command::cargo_bin("tb")
-            .unwrap()
-            .args(["start", "--session", "dupe"])
-            .assert()
-            .success();
+        let (_, _) = run_tb_start_in_tmux(&["--session", "dupe"]);
+        assert!(session_exists("dupe"), "First session should exist");
 
         // Try to start second session with same ID - should fail
-        Command::cargo_bin("tb")
+        // Run directly (no TTY) since we want to check the error
+        let output = Command::cargo_bin("tb")
             .unwrap()
             .args(["start", "--session", "dupe"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("already exists"));
+            .output()
+            .unwrap();
+
+        // It will fail due to no TTY, but if it got past the TTY check,
+        // let's verify the duplicate check works by running in tmux
+        let (_, content) = run_tb_start_in_tmux(&["--session", "dupe"]);
+        assert!(
+            content.contains("already exists"),
+            "Should reject duplicate session ID: {}",
+            content
+        );
 
         cleanup_session("dupe");
     }

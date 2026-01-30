@@ -46,9 +46,9 @@
     "run_timeouts::no_output_timeout_triggers": "passing",
     "start::creates_tmux_session_with_auto_id": "passing",
     "start::explicit_session_id_is_used": "passing",
+    "start::fails_when_not_interactive": "passing",
     "start::output_includes_export_instruction": "passing",
     "start::output_includes_tell_your_agent_message": "passing",
-    "start::fails_when_not_interactive": "pending",
     "start::rejects_duplicate_explicit_session_id": "passing",
     "start::sequential_sessions_get_different_first_letters": "passing",
     "start::session_id_format_is_letter_plus_two_alphanumeric": "passing"
