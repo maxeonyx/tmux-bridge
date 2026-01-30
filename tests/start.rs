@@ -168,12 +168,12 @@ mod start {
     }
 
     #[test]
-    fn prints_attach_hint_when_not_interactive() {
+    fn fails_when_not_interactive() {
         cleanup_all_tb_sessions();
 
-        // When run without a TTY (like in tests), tb start should create the
-        // session but print a message explaining it needs to be run interactively
-        // to attach automatically.
+        // tb start is for humans only - it must be run interactively.
+        // When run without a TTY (like by an agent), it should fail with
+        // a helpful error message.
 
         let output = Command::cargo_bin("tb")
             .unwrap()
@@ -181,20 +181,24 @@ mod start {
             .output()
             .unwrap();
 
-        // Session should still be created
+        // Should fail
         assert!(
-            session_exists("attach-test"),
-            "Session should be created even without TTY"
+            !output.status.success(),
+            "tb start should fail when not interactive"
         );
 
-        // Should tell user how to attach manually
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Session should NOT be created
         assert!(
-            stdout.contains("tmux attach"),
-            "Should tell user how to attach when not interactive: {}",
-            stdout
+            !session_exists("attach-test"),
+            "Session should not be created when not interactive"
         );
 
-        cleanup_session("attach-test");
+        // Error should explain what to do
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("interactive"),
+            "Error should mention 'interactive': {}",
+            stderr
+        );
     }
 }
