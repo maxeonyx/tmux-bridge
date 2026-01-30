@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ratchet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Run test ratchet
+        run: python3 scripts/ratchet.py
+
+      - name: Check status file unchanged
+        run: |
+          if ! git diff --exit-code .test-status.json; then
+            echo "::error::Test status changed. Commit the updated .test-status.json"
+            exit 1
+          fi
+
+  release:
+    needs: ratchet
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: tb
+            asset_name: tb-linux-amd64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_name: tb
+            asset_name: tb-linux-amd64-musl
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: tb
+            asset_name: tb-macos-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: tb
+            asset_name: tb-macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary
+        run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/tb-linux-amd64/tb-linux-amd64
+            artifacts/tb-linux-amd64-musl/tb-linux-amd64-musl
+            artifacts/tb-macos-amd64/tb-macos-amd64
+            artifacts/tb-macos-arm64/tb-macos-arm64
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -4,207 +4,107 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 
 ## Project Overview
 
-tmux-bridge is a two-script system allowing AI agents to inject commands into an interactive terminal session controlled by a human user. Built on tmux.
+`tb` is a Rust CLI allowing AI agents to inject commands into an interactive terminal session controlled by a human user. Built on tmux.
 
-## File Structure
+## Commands
 
-```
-bin/
-  tmux-bridge    # Human runs this - creates/attaches to tmux session
-  tmux-send      # Agent uses this - injects command, returns output
-```
-
-Both scripts are fish shell.
+| Command | Purpose |
+|---------|---------|
+| `tb start` | Human starts session, displays ID like `a7x` |
+| `tb run` | Agent runs synchronous command, waits for output |
+| `tb launch` | Agent starts background task in split pane |
+| `tb check` | Agent checks background task status/output |
+| `tb done` | Agent closes background task pane |
 
 ## Key Design Decisions
 
 1. **tmux is the foundation** - don't reinvent tmux
 2. **Human terminal is primary** - agent is a guest, not the owner
-3. **`tmux-send` behaves like a command wrapper** - stdout/stderr/exit status all work normally
-4. **Markers are visible in v1** - this is acceptable, cleaner display is v2
-5. **REPL support is v2** - don't try to implement it now
+3. **`tb run` behaves like a command wrapper** - stdout/exit status work normally
+4. **Progressive disclosure** - each command only hints at the next logical step
+5. **Multi-session support** - session IDs like `a7x` allow multiple bridges
+6. **Background tasks** - up to 6 concurrent tasks in split panes
 
 ## Building and Testing
 
-```fish
-# Run the scripts directly from the repo
-./bin/tmux-bridge
-./bin/tmux-send -- ls -la
+```bash
+# Build
+cargo build
 
-# Install to ~/.local/bin for PATH access
-cp bin/tmux-bridge bin/tmux-send ~/.local/bin/
+# Run tests (47 E2E tests defining behavior)
+cargo test
+
+# Run specific test file
+cargo test --test start
+cargo test --test run
+cargo test --test launch
+cargo test --test check
+cargo test --test done
+
+# Run with release optimizations
+cargo build --release
 ```
 
-No build step. No dependencies beyond tmux and fish.
+### Test Status
 
-### Automated Tests
+All tests are **failing** - they define the expected behavior but the implementation uses `todo!()` stubs. See `TODO.md` for implementation tasks.
 
-Run the automated test suite before asking the user for manual testing:
+## Project Structure
 
-```fish
-./test/run.fish
 ```
-
-This creates its own tmux session, runs all tests, and cleans up. All tests should pass before proceeding to manual testing with the user.
+src/
+  main.rs         # CLI setup with clap, dispatch to commands
+tests/
+  start.rs        # E2E tests for tb start
+  run.rs          # E2E tests for tb run
+  launch.rs       # E2E tests for tb launch
+  check.rs        # E2E tests for tb check
+  done.rs         # E2E tests for tb done
+bin/              # Old fish scripts (to be removed)
+```
 
 ## Implementation Details
 
 ### Session naming
-tmux session is named `tmux-bridge-$USER` to avoid conflicts between users.
+Sessions are named `tb-{id}` where id is `{letter}{random}{random}` (e.g., `tb-a7x`).
 
-### Runtime directory
-`/tmp/tmux-bridge-$USER/` stores temporary stderr files. Created with mode 700.
+### Session resolution
+Commands use `--session ID` flag or `$TB_SESSION` environment variable.
 
 ### Command markers
-Use format `___TMUXSEND_START_$id___` and `___TMUXSEND_END_$id $exit_status___` where `$id` is random.
+Format: `___START_$id___` and `___END_${id}_$exit_status___` where `$id` is random.
 
 ### Timeout behavior
 1. No-output timeout (default 10s) - no new output for N seconds
 2. Overall timeout (default 120s) - total elapsed time
 3. Two-phase kill: SIGINT, wait 3s, SIGQUIT
 
+### Background task layout
+- Tasks 1-3: horizontal splits at top (10 lines each)
+- Tasks 4-6: two columns of horizontal splits
+- Maximum 6 concurrent background tasks
+
 ## Error Messages
 
-When no bridge is running, `tmux-send` must output:
+Error messages should be self-documenting and guide the agent to the next action:
 
 ```
-Error: No tmux-bridge session is running.
+Error: No session specified.
 
-You have used `tmux-send`, but it currently has nowhere to send to.
-
-The user needs to start the interactive backing terminal using `tmux-bridge`.
-Do not try this yourself - instead, ask the user to do it for you.
-
-This is necessary for *interactive* commands - for example, sudo (requiring
-a password prompt). If you can avoid interactive tools, then prefer that.
-Otherwise, please ask the user now.
+Set TB_SESSION environment variable, or use --session ID.
+Ask the user which tmux-bridge session to use.
 ```
 
 ## Code Style
 
-- Fish shell, not bash
-- Minimal code - do the simplest thing that works
+- Rust, idiomatic
+- Use `clap` derive macros for CLI parsing
+- Shell out to `tmux` via `std::process::Command`
+- Minimal dependencies - this is a simple tool
 - Comments explain "why", not "what"
-- Error messages should be helpful and actionable
 
 ## What Not To Do
 
 - Don't hide markers from the human terminal yet (future possibility)
-- Don't add features without updating README and VISION
-- Don't use bash - this project uses fish
-
-## Manual Walkthrough Testing
-
-When making significant changes, run through this manual test matrix with the user.
-The user must have `tmux-bridge` running in a terminal they control.
-
-### Test Matrix
-
-For each shell type (bash, Python, Nix, Node), test these scenarios:
-
-| Scenario | What to test |
-|----------|--------------|
-| Normal | Command/eval completes successfully |
-| Multiline | Commands with newlines are sent correctly |
-| User types during | User types while command is running - their input gets captured |
-| User kills/closes | User interrupts (Ctrl+C), kills the REPL, or closes the bridge |
-
-### Bash (command mode)
-
-```bash
-# 1. Normal
-tmux-send -- echo "hello"
-
-# 2. Multiline
-tmux-send -- 'echo "line1
-line2
-line3"'
-
-# 3. User types during (use sleep so they have time)
-tmux-send --timeout 20 -- 'sleep 10 && echo "done"'
-
-# 4. User interrupts - expect timeout since no end marker
-tmux-send --timeout 20 -- sleep 60
-```
-
-### Python REPL
-
-```bash
-# 1. Normal
-tmux-send --repl python -- python3
-tmux-send --repl python -- "1 + 1"
-tmux-send --close
-
-# 2. Multiline (note: Python needs extra blank line for indented blocks)
-tmux-send --repl python -- python3
-tmux-send --repl python -- 'print("hello"); print("world")'
-tmux-send --close
-
-# 3. User types during
-tmux-send --repl python -- python3
-tmux-send --repl python --timeout 20 -- 'import time; time.sleep(10); "done"'
-tmux-send --close
-
-# 4. User kills REPL (killall -9 python3) - expect timeout
-tmux-send --repl python -- python3
-tmux-send --repl python --timeout 20 -- 'import time; time.sleep(60); "done"'
-tmux-send --close
-```
-
-### psql REPL
-
-```bash
-# 1. Normal
-tmux-send --repl psql -- psql -d mydb
-tmux-send --repl psql -- "SELECT 1 + 1;"
-tmux-send --close
-
-# 2. Multiline SQL
-tmux-send --repl psql -- psql -d mydb
-tmux-send --repl psql -- "
-SELECT count(*), sum(amount)
-FROM (
-  SELECT sum(balance) AS amount
-  FROM accounts
-  GROUP BY user_id
-) x;
-"
-tmux-send --close
-```
-
-### Nix REPL
-
-```bash
-# 1. Normal
-tmux-send --repl nix -- nix repl
-tmux-send --repl nix -- "1 + 1"
-tmux-send --close
-
-# 2. User types during (slow fold operation)
-tmux-send --repl nix -- nix repl
-tmux-send --repl nix --timeout 30 -- 'builtins.foldl (a: b: a + b) 0 (builtins.genList (x: x) 1000000)'
-tmux-send --close
-```
-
-### Node REPL
-
-```bash
-# 1. Normal
-tmux-send --repl node -- node
-tmux-send --repl node -- "1 + 1"
-tmux-send --close
-
-# 2. User types during (sync busy loop)
-tmux-send --repl node -- node
-tmux-send --repl node --timeout 20 -- 'const start = Date.now(); while (Date.now() - start < 10000) {}; "done"'
-tmux-send --close
-```
-
-### Expected behaviors
-
-- **Normal**: Output shows result and prompt
-- **Multiline**: Newlines preserved, semicolons not escaped
-- **User types during**: Their keystrokes appear in captured output
-- **User Ctrl+C**: Command/REPL handles interrupt, may return to prompt with error
-- **User kills process**: Timeout occurs, last 20 lines of pane shown
-- **User closes bridge**: Clean error "tmux-bridge session closed"
+- Don't add features without updating VISION.md
+- Don't implement REPL support - it was removed in favor of simpler design

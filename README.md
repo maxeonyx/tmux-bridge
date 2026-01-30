@@ -1,6 +1,6 @@
 # tmux-bridge
 
-A tmux-based system that allows AI agents to inject commands into an interactive terminal session controlled by a human user.
+A Rust CLI that allows AI agents to inject commands into an interactive terminal session controlled by a human user.
 
 ## Why?
 
@@ -9,91 +9,124 @@ AI coding agents need to run commands, but some commands require human interacti
 - `sudo` requiring a password
 - Commands that need credential caching (`sudo -v`)
 - Interactive setup wizards
-- Anything where the human needs to see and respond
+- Long-running builds that outlast agent timeouts
 
-`tmux-bridge` solves this by letting the human maintain an interactive terminal while the agent sends commands into it.
+`tb` solves this by letting the human maintain an interactive terminal while the agent sends commands into it.
 
 ## Installation
 
-Requires: `tmux`, `fish`
+Requires: `tmux`
 
-```fish
-# Clone the repo
-git clone git@github.com:maxeonyx/tmux-bridge.git
-cd tmux-bridge
+```bash
+# From source
+cargo install --path .
 
-# Install to ~/.local/bin (must be on PATH)
-cp bin/tmux-bridge bin/tmux-send ~/.local/bin/
-chmod +x ~/.local/bin/tmux-bridge ~/.local/bin/tmux-send
+# Or download a release binary
+# (coming soon)
 ```
 
-## Usage
+## Quick Start
 
-### Human: Start the bridge
+### Human: Start a session
 
-```fish
-$ tmux-bridge
-# You're now in an interactive shell
-# Run sudo -v to cache credentials if needed
-# Keep this terminal open
+```bash
+$ tb start
+Started session 'a7x'
+
+Tell your agent:
+  export TB_SESSION=a7x
 ```
 
-You can open multiple terminals and run `tmux-bridge` in each - they all attach to the same session. The session stays alive as long as at least one terminal is attached.
+### Agent: Run commands
 
-### Agent: Send commands
+```bash
+# Set the session (or use --session flag)
+export TB_SESSION=a7x
 
-```fish
-$ tmux-send -- ls -la
-drwxr-xr-x  5 mclarke mclarke 4096 Dec 17 10:00 .
--rw-r--r--  1 mclarke mclarke  123 Dec 17 09:00 foo.txt
+# Run a command synchronously
+$ tb run -- ls -la
+drwxr-xr-x  5 user user 4096 Jan 30 10:00 .
+-rw-r--r--  1 user user  123 Jan 30 09:00 foo.txt
 
-$ tmux-send -- sudo -n apt update
-# Works if user has cached credentials
-
-$ echo $status
-0
+# Run with custom timeout
+$ tb run --timeout 60 -- make build
 ```
 
-Stdout and stderr are separated - you can redirect them independently:
+### Agent: Background tasks
 
-```fish
-$ tmux-send -- ls /nonexistent 2>err.txt
-$ cat err.txt
-ls: cannot access '/nonexistent': No such file or directory
+```bash
+# Start a long-running task
+$ tb launch -- npm run build
+Task t1 started.
+Check status with: tb check t1
+
+# Check on it later
+$ tb check t1
+[build output...]
+
+# When done
+Task t1 complete (exit 0).
+Close pane with: tb done t1
+
+# Clean up
+$ tb done t1
+Closed task t1.
 ```
 
-### Timeouts
+## Commands
 
-```fish
+| Command | Purpose |
+|---------|---------|
+| `tb start` | Human starts session, displays ID |
+| `tb run` | Run command synchronously |
+| `tb launch` | Start background task in split pane |
+| `tb check` | Check background task status |
+| `tb done` | Close background task pane |
+
+## Session Management
+
+Sessions get short unique IDs like `a7x`:
+- First letter: sequential (`a`, `b`, `c`...)
+- Next two chars: random for uniqueness
+
+Multiple sessions can run simultaneously. The agent specifies which to use via:
+- `TB_SESSION` environment variable
+- `--session` flag on any command
+
+## Background Task Layout
+
+Up to 6 concurrent background tasks, displayed as split panes:
+
+```
+┌─────────────────────────────┬─────────────────────────────┐
+│ [task t1]                   │ [task t4]                   │
+├─────────────────────────────┼─────────────────────────────┤
+│ [task t2]                   │ [task t5]                   │
+├─────────────────────────────┼─────────────────────────────┤
+│ [task t3]                   │ [task t6]                   │
+├─────────────────────────────┴─────────────────────────────┤
+│ [main session]                                            │
+└───────────────────────────────────────────────────────────┘
+```
+
+## Timeouts
+
+```bash
 # Default: 10s no-output timeout, 120s overall timeout
-$ tmux-send -- make build
+$ tb run -- make build
 
 # Increase no-output timeout for slow commands
-$ tmux-send --timeout 60 -- make build
+$ tb run --timeout 60 -- make build
 
 # Increase overall timeout for long-running commands
-$ tmux-send --max-time 600 -- ./slow-test.sh
-
-# Both
-$ tmux-send --timeout 60 --max-time 300 -- make
+$ tb run --max-time 600 -- ./slow-test.sh
 ```
 
-If a timeout triggers, `tmux-send` sends SIGINT, waits 3 seconds, then SIGQUIT if needed.
+If a timeout triggers, `tb run` sends SIGINT, waits 3 seconds, then SIGQUIT.
 
-## How It Works
+## Status
 
-- `tmux-bridge` creates/attaches to a tmux session named `tmux-bridge-$USER`
-- `tmux-send` injects commands via `tmux send-keys` with unique markers
-- Output is captured via `tmux capture-pane` and parsed between markers
-- Stderr is redirected to a temp file and read back separately
-
-## Limitations
-
-- Markers are visible in the human's terminal (v1)
-- Very long output may hit tmux scrollback limits
-- Don't type in the bridge terminal while agent commands are running
-- Binary output not supported
-- REPL support is planned for v2
+⚠️ **Work in progress** - all 47 E2E tests are failing. See [TODO.md](TODO.md) for implementation status.
 
 ## License
 
