@@ -4,8 +4,7 @@
 
 mod common;
 
-use assert_cmd::Command;
-use common::{TestSession, cleanup_all_tb_sessions};
+use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
 use predicates::prelude::*;
 use std::thread;
 use std::time::Duration;
@@ -23,8 +22,7 @@ mod check_output {
         // Give it a moment to produce output
         thread::sleep(Duration::from_millis(500));
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["check", &task_id])
             .assert()
@@ -38,8 +36,7 @@ mod check_output {
 
         let task_id = session.launch_task(&["sleep", "60"]);
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["check", &task_id])
             .assert()
@@ -58,8 +55,7 @@ mod check_output {
         // Wait for it to complete
         thread::sleep(Duration::from_secs(1));
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["check", &task_id])
             .assert()
@@ -77,8 +73,7 @@ mod check_output {
 
         thread::sleep(Duration::from_secs(1));
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["check", &task_id])
             .assert()
@@ -99,8 +94,7 @@ mod check_truncation {
 
         thread::sleep(Duration::from_secs(1));
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["check", &task_id, "--first", "5", "--last", "5"])
             .assert()
@@ -116,8 +110,7 @@ mod check_errors {
     fn fails_for_nonexistent_task() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["check", "t999"])
             .assert()
@@ -129,8 +122,7 @@ mod check_errors {
     fn fails_without_session() {
         cleanup_all_tb_sessions();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .args(["check", "t1"])
             .assert()
             .failure()

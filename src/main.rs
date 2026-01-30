@@ -8,6 +8,22 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::process::Command;
 
+/// Returns the session prefix based on TB_TEST_MODE environment variable.
+/// When TB_TEST_MODE is set, returns "tbtest-" to avoid interfering with real sessions.
+/// Otherwise returns "tb-".
+fn session_prefix() -> &'static str {
+    if std::env::var("TB_TEST_MODE").is_ok() {
+        "tbtest-"
+    } else {
+        "tb-"
+    }
+}
+
+/// Format a full tmux session name from a session ID
+fn tmux_session_name(session_id: &str) -> String {
+    format!("{}{}", session_prefix(), session_id)
+}
+
 #[derive(Parser)]
 #[command(name = "tb")]
 #[command(about = "A tmux bridge for AI agents to run commands in interactive terminals")]
@@ -143,7 +159,7 @@ fn cmd_start(session: Option<String>) -> Result<(), String> {
     };
 
     // Create the tmux session
-    let tmux_name = format!("tb-{}", session_id);
+    let tmux_name = tmux_session_name(&session_id);
     let status = Command::new("tmux")
         .args(["new-session", "-d", "-s", &tmux_name])
         .status()
@@ -172,7 +188,7 @@ fn cmd_start(session: Option<String>) -> Result<(), String> {
 /// Check if a session with the given ID already exists
 fn session_exists(session_id: &str) -> bool {
     Command::new("tmux")
-        .args(["has-session", "-t", &format!("tb-{}", session_id)])
+        .args(["has-session", "-t", &tmux_session_name(session_id)])
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
@@ -180,19 +196,21 @@ fn session_exists(session_id: &str) -> bool {
 
 /// Generate a session ID with format: {first-free-letter}{random}{random}
 fn generate_session_id() -> Result<String, String> {
-    // Get list of existing tb-* sessions
+    let prefix = session_prefix();
+
+    // Get list of existing sessions with our prefix
     let output = Command::new("tmux")
         .args(["list-sessions", "-F", "#{session_name}"])
         .output()
         .map_err(|e| format!("Failed to list tmux sessions: {}", e))?;
 
-    // Extract used first letters from tb-{letter}** sessions
+    // Extract used first letters from {prefix}{letter}** sessions
     let stdout = String::from_utf8_lossy(&output.stdout);
     let used_letters: HashSet<char> = stdout
         .lines()
         .filter_map(|line| {
-            if line.starts_with("tb-") && line.len() >= 4 {
-                line.chars().nth(3)
+            if line.starts_with(prefix) && line.len() > prefix.len() {
+                line.chars().nth(prefix.len())
             } else {
                 None
             }
@@ -231,7 +249,7 @@ fn cmd_run(
         ));
     }
 
-    let tmux_name = format!("tb-{}", session_id);
+    let tmux_name = tmux_session_name(&session_id);
 
     // Generate unique marker ID
     let marker_id: String = {
@@ -457,7 +475,7 @@ fn cmd_launch(session: Option<String>, command: Vec<String>) -> Result<(), Strin
         ));
     }
 
-    let tmux_name = format!("tb-{}", session_id);
+    let tmux_name = tmux_session_name(&session_id);
 
     // Count existing task panes to get next task ID
     let task_count = count_task_panes(&tmux_name);
@@ -588,7 +606,7 @@ fn cmd_check(
         ));
     }
 
-    let tmux_name = format!("tb-{}", session_id);
+    let tmux_name = tmux_session_name(&session_id);
 
     // Find the pane with the matching task title
     let pane_id = find_task_pane(&tmux_name, &task)?;
@@ -691,7 +709,7 @@ fn cmd_done(task: String, session: Option<String>) -> Result<(), String> {
         ));
     }
 
-    let tmux_name = format!("tb-{}", session_id);
+    let tmux_name = tmux_session_name(&session_id);
 
     // Find the pane with the matching task title
     let pane_id = find_task_pane(&tmux_name, &task)?;

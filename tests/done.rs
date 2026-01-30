@@ -4,8 +4,7 @@
 
 mod common;
 
-use assert_cmd::Command;
-use common::{TestSession, cleanup_all_tb_sessions};
+use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
 use predicates::prelude::*;
 use std::thread;
 use std::time::Duration;
@@ -22,8 +21,7 @@ mod done_basic {
         // Should have 2 panes now
         assert_eq!(session.count_panes(), 2);
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &task_id])
             .assert()
@@ -39,8 +37,7 @@ mod done_basic {
 
         let task_id = session.launch_task(&["sleep", "60"]);
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &task_id])
             .assert()
@@ -59,8 +56,7 @@ mod done_basic {
         assert_eq!(session.count_panes(), 4);
 
         // Close middle one
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &t2])
             .assert()
@@ -69,8 +65,7 @@ mod done_basic {
         assert_eq!(session.count_panes(), 3);
 
         // Close first
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &t1])
             .assert()
@@ -79,8 +74,7 @@ mod done_basic {
         assert_eq!(session.count_panes(), 2);
 
         // Close last
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &t3])
             .assert()
@@ -104,8 +98,7 @@ mod done_with_finished_tasks {
         thread::sleep(Duration::from_secs(1));
 
         // Should still be able to close the pane
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &task_id])
             .assert()
@@ -120,8 +113,7 @@ mod done_errors {
     fn fails_for_nonexistent_task() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", "t999"])
             .assert()
@@ -133,8 +125,7 @@ mod done_errors {
     fn fails_without_session() {
         cleanup_all_tb_sessions();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .args(["done", "t1"])
             .assert()
             .failure()
@@ -148,16 +139,14 @@ mod done_errors {
         let task_id = session.launch_task(&["sleep", "60"]);
 
         // Close it
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &task_id])
             .assert()
             .success();
 
         // Try to close again
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &task_id])
             .assert()
@@ -182,8 +171,7 @@ mod done_allows_new_launches {
         assert_eq!(session.count_panes(), 7);
 
         // Close one
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["done", &tasks[0]])
             .assert()
@@ -192,8 +180,7 @@ mod done_allows_new_launches {
         assert_eq!(session.count_panes(), 6);
 
         // Should now be able to launch a new one
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["launch", "--", "sleep", "60"])
             .assert()

@@ -4,8 +4,7 @@
 
 mod common;
 
-use assert_cmd::Command;
-use common::{TestSession, cleanup_all_tb_sessions};
+use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
 use predicates::prelude::*;
 
 mod launch_basic {
@@ -15,8 +14,7 @@ mod launch_basic {
     fn returns_task_id() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["launch", "--", "sleep", "60"])
             .assert()
@@ -28,8 +26,7 @@ mod launch_basic {
     fn output_includes_check_instruction() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["launch", "--", "sleep", "60"])
             .assert()
@@ -44,8 +41,7 @@ mod launch_basic {
         // Should start with 1 pane (main session)
         assert_eq!(session.count_panes(), 1, "Should start with 1 pane");
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["launch", "--", "sleep", "60"])
             .assert()
@@ -59,15 +55,13 @@ mod launch_basic {
     fn task_ids_are_sequential() {
         let session = TestSession::new();
 
-        let output1 = Command::cargo_bin("tb")
-            .unwrap()
+        let output1 = tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["launch", "--", "sleep", "60"])
             .output()
             .unwrap();
 
-        let output2 = Command::cargo_bin("tb")
-            .unwrap()
+        let output2 = tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["launch", "--", "sleep", "60"])
             .output()
@@ -97,8 +91,7 @@ mod launch_pane_layout {
         let session = TestSession::new();
 
         for i in 1..=3 {
-            Command::cargo_bin("tb")
-                .unwrap()
+            tb_cmd()
                 .env("TB_SESSION", &session.id)
                 .args(["launch", "--", "sleep", "60"])
                 .assert()
@@ -120,8 +113,7 @@ mod launch_pane_layout {
 
         // Launch 6 tasks
         for _ in 1..=6 {
-            Command::cargo_bin("tb")
-                .unwrap()
+            tb_cmd()
                 .env("TB_SESSION", &session.id)
                 .args(["launch", "--", "sleep", "60"])
                 .assert()
@@ -142,8 +134,7 @@ mod launch_pane_layout {
 
         // Launch 6 tasks
         for _ in 1..=6 {
-            Command::cargo_bin("tb")
-                .unwrap()
+            tb_cmd()
                 .env("TB_SESSION", &session.id)
                 .args(["launch", "--", "sleep", "60"])
                 .assert()
@@ -151,8 +142,7 @@ mod launch_pane_layout {
         }
 
         // Seventh should fail
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["launch", "--", "sleep", "60"])
             .assert()
@@ -169,8 +159,7 @@ mod launch_session_resolution {
     fn fails_without_session() {
         cleanup_all_tb_sessions();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .args(["launch", "--", "sleep", "60"])
             .assert()
             .failure()
@@ -181,8 +170,7 @@ mod launch_session_resolution {
     fn uses_tb_session_env_var() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["launch", "--", "echo", "test"])
             .assert()

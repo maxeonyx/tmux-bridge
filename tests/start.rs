@@ -16,10 +16,11 @@ use std::time::Duration;
 /// Run `tb start` inside a temporary tmux session and return the pane content.
 /// This provides `tb start` with a real TTY.
 ///
-/// Note: Does NOT clean up tb-* sessions - caller is responsible for cleanup.
+/// Note: Does NOT clean up tbtest-* sessions - caller is responsible for cleanup.
 /// The test runner session (tb-test-runner) is always cleaned up.
+/// Always sets TB_TEST_MODE=1 so sessions use "tbtest-" prefix.
 fn run_tb_start_in_tmux(args: &[&str]) -> (bool, String) {
-    run_tb_start_in_tmux_with_env(args, &[])
+    run_tb_start_in_tmux_with_env(args, &[("TB_TEST_MODE", "1")])
 }
 
 /// Run `tb start` inside a temporary tmux session with custom environment variables.
@@ -328,8 +329,9 @@ mod start {
         cleanup_all_tb_sessions();
 
         // Without TB_TEST_MODE, sessions should use normal "tb-" prefix.
+        // Explicitly pass empty env to avoid the default TB_TEST_MODE=1.
 
-        let (_, content) = run_tb_start_in_tmux(&[]);
+        let (_, content) = run_tb_start_in_tmux_with_env(&[], &[]);
 
         // Extract session ID
         if let Some(start) = content.find("Started session '") {
