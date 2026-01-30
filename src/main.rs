@@ -149,6 +149,25 @@ fn cmd_start(session: Option<String>) -> Result<(), String> {
     println!();
     println!("Tell your agent: export TB_SESSION={}", session_id);
 
+    // If running interactively, attach to the session
+    // Otherwise, tell the user how to attach manually
+    use std::io::IsTerminal;
+    if std::io::stdout().is_terminal() {
+        println!();
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+
+        // exec replaces this process with tmux attach
+        use std::os::unix::process::CommandExt;
+        let err = Command::new("tmux")
+            .args(["attach-session", "-t", &tmux_name])
+            .exec();
+        return Err(format!("Failed to attach to session: {}", err));
+    } else {
+        println!();
+        println!("Run: tmux attach -t {}", tmux_name);
+    }
+
     Ok(())
 }
 
