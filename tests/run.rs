@@ -4,8 +4,7 @@
 
 mod common;
 
-use assert_cmd::Command;
-use common::{TestSession, cleanup_all_tb_sessions};
+use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
 use predicates::prelude::*;
 use std::time::Duration;
 
@@ -14,8 +13,7 @@ mod run_session_resolution {
 
     #[test]
     fn fails_without_session() {
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .args(["run", "--", "echo", "hello"])
             .assert()
             .failure()
@@ -28,8 +26,7 @@ mod run_session_resolution {
     fn uses_tb_session_env_var() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--", "echo", "hello"])
             .assert()
@@ -42,8 +39,7 @@ mod run_session_resolution {
         let session = TestSession::new();
 
         // Set env var to nonexistent session, but use --session with real one
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", "nonexistent")
             .args(["run", "--session", &session.id, "--", "echo", "override"])
             .assert()
@@ -55,8 +51,7 @@ mod run_session_resolution {
     fn fails_with_nonexistent_session() {
         cleanup_all_tb_sessions();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .args(["run", "--session", "nonexistent99", "--", "echo", "hello"])
             .assert()
             .failure()
@@ -72,8 +67,7 @@ mod run_command_execution {
     fn simple_echo_returns_output() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--", "echo", "hello world"])
             .assert()
@@ -85,8 +79,7 @@ mod run_command_execution {
     fn captures_multiline_output() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--", "printf", "line1\\nline2\\nline3\\n"])
             .assert()
@@ -100,8 +93,7 @@ mod run_command_execution {
     fn preserves_exit_status_zero() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--", "true"])
             .assert()
@@ -112,8 +104,7 @@ mod run_command_execution {
     fn preserves_exit_status_nonzero() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--", "false"])
             .assert()
@@ -125,8 +116,7 @@ mod run_command_execution {
     fn preserves_specific_exit_code() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--", "sh", "-c", "exit 42"])
             .assert()
@@ -138,8 +128,7 @@ mod run_command_execution {
     fn handles_command_with_special_characters() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--", "echo", "hello; world && test | pipe"])
             .assert()
@@ -151,8 +140,7 @@ mod run_command_execution {
     fn handles_command_with_quotes() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--", "echo", "it's a \"quoted\" string"])
             .assert()
@@ -169,8 +157,7 @@ mod run_timeouts {
         let session = TestSession::new();
 
         // sleep produces no output, should timeout
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--timeout", "2", "--", "sleep", "30"])
             .timeout(Duration::from_secs(10))
@@ -185,8 +172,7 @@ mod run_timeouts {
         let session = TestSession::new();
 
         // Command that produces output but runs too long
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args([
                 "run",
@@ -210,8 +196,7 @@ mod run_timeouts {
     fn fast_command_does_not_timeout() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args(["run", "--timeout", "2", "--", "echo", "quick"])
             .assert()
@@ -228,8 +213,7 @@ mod run_output_truncation {
         let session = TestSession::new();
 
         // Generate 200 lines, request first 5 and last 5
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args([
                 "run", "--first", "5", "--last", "5", "--", "seq", "1", "200",
@@ -247,8 +231,7 @@ mod run_output_truncation {
     fn does_not_truncate_short_output() {
         let session = TestSession::new();
 
-        Command::cargo_bin("tb")
-            .unwrap()
+        tb_cmd()
             .env("TB_SESSION", &session.id)
             .args([
                 "run", "--first", "50", "--last", "50", "--", "seq", "1", "10",
