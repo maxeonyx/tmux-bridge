@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tmux-bridge</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --fg: #1a1a1a;
+      --muted: #666;
+      --border: #e0e0e0;
+      --code-bg: #f0f0f0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d0d0d;
+        --fg: #e8e8e8;
+        --muted: #888;
+        --border: #2a2a2a;
+        --code-bg: #1a1a1a;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 4rem 2rem;
+    }
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+    h2 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-top: 3rem;
+      margin-bottom: 1rem;
+    }
+    .tagline {
+      color: var(--muted);
+      font-size: 1.1rem;
+      margin-bottom: 3rem;
+    }
+    .screenshot {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 3rem;
+    }
+    .screenshot-light { display: block; }
+    .screenshot-dark { display: none; }
+    @media (prefers-color-scheme: dark) {
+      .screenshot-light { display: none; }
+      .screenshot-dark { display: block; }
+    }
+    .commands {
+      display: grid;
+      gap: 1.5rem;
+      margin-bottom: 3rem;
+    }
+    .command {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem 1.25rem;
+    }
+    .command code {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 0.9rem;
+      background: var(--code-bg);
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+    }
+    .command p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+    .codeblock {
+      background: var(--code-bg);
+      border-radius: 6px;
+      padding: 1.25rem;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 0.85rem;
+      margin-bottom: 1.5rem;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .codeblock .comment { color: var(--muted); }
+    .skill {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .skill-header {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .skill-yaml {
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 0.8rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .skill-yaml .key { color: #0550ae; }
+    .skill-yaml .str { color: #0a3069; }
+    @media (prefers-color-scheme: dark) {
+      .skill-yaml .key { color: #79c0ff; }
+      .skill-yaml .str { color: #a5d6ff; }
+    }
+    .skill pre {
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 1rem;
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 0.8rem;
+      overflow-x: auto;
+      margin: 0;
+    }
+    .skill p {
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+    .skill p:last-of-type {
+      margin-bottom: 1rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    footer {
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+      padding-top: 2rem;
+      margin-top: 2rem;
+    }
+    footer a {
+      color: var(--fg);
+      text-decoration: none;
+    }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>tmux-bridge</h1>
+    <p class="tagline">Let AI agents run commands in your terminal.</p>
+
+    <picture>
+      <img src="screenshot-light.png" alt="tmux-bridge in action" class="screenshot screenshot-light">
+      <img src="screenshot-dark.png" alt="tmux-bridge in action" class="screenshot screenshot-dark">
+    </picture>
+
+    <div class="commands">
+      <div class="command">
+        <code>tb start</code>
+        <p>Human starts a session, gets a session ID to share with the agent.</p>
+      </div>
+      <div class="command">
+        <code>tb run -- cargo build</code>
+        <p>Agent runs a command synchronously, waits for output.</p>
+      </div>
+      <div class="command">
+        <code>tb launch -- npm run dev</code>
+        <p>Agent starts a background task in a split pane.</p>
+      </div>
+      <div class="command">
+        <code>tb check t1</code>
+        <p>Agent checks status and output of a background task.</p>
+      </div>
+    </div>
+
+    <h2>Install</h2>
+    <div class="codeblock"><span class="comment"># Download binary (Linux x86_64)</span>
+curl -L https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-x86_64 -o ~/.local/bin/tb
+chmod +x ~/.local/bin/tb</div>
+
+    <h2>Agent Skill</h2>
+    <p style="color: var(--muted); margin-bottom: 1rem;">For <a href="https://opencode.ai" style="color: var(--fg);">OpenCode</a> and compatible agents.</p>
+    
+    <div class="codeblock"><span class="comment"># Install skill</span>
+mkdir -p ~/.config/opencode/skills/tmux-bridge
+curl -sL https://maxeonyx.github.io/tmux-bridge/SKILL.md \
+  -o ~/.config/opencode/skills/tmux-bridge/SKILL.md</div>
+
+    <div class="skill">
+      <div class="skill-yaml"><span class="comment">---</span>
+<span class="key">name:</span> <span class="str">tmux-bridge</span>
+<span class="key">description:</span> <span class="str">If a task requires interactive-only steps such as authentication, or background commands</span>
+<span class="comment">---</span></div>
+      <p>Use <code>tb</code> for commands requiring user interaction (sudo, password prompts, confirmations) or long-running background tasks.</p>
+      <p>If you see "No session specified", ask the user to start one with <code>tb start</code>.</p>
+<pre><span class="comment"># Synchronous command (waits for completion)</span>
+tb run -- sudo apt install foo
+
+<span class="comment"># Background task (returns immediately)</span>
+tb launch -- cargo build --release
+tb check t1    <span class="comment"># Check status</span>
+tb done t1     <span class="comment"># Close when finished</span></pre>
+    </div>
+
+    <footer>
+      <a href="https://github.com/maxeonyx/tmux-bridge">GitHub</a>
+    </footer>
+  </div>
+</body>
+</html>
