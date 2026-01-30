@@ -19,6 +19,11 @@ use std::time::Duration;
 /// Note: Does NOT clean up tb-* sessions - caller is responsible for cleanup.
 /// The test runner session (tb-test-runner) is always cleaned up.
 fn run_tb_start_in_tmux(args: &[&str]) -> (bool, String) {
+    run_tb_start_in_tmux_with_env(args, &[])
+}
+
+/// Run `tb start` inside a temporary tmux session with custom environment variables.
+fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, String) {
     let test_session = "tb-test-runner";
 
     // Clean up any previous test runner session
@@ -33,12 +38,29 @@ fn run_tb_start_in_tmux(args: &[&str]) -> (bool, String) {
         .expect("Failed to create test tmux session");
     assert!(status.success(), "Failed to create test tmux session");
 
-    // Build the tb command
+    // Build the tb command with optional env vars
     let tb_path = assert_cmd::cargo::cargo_bin("tb");
-    let tb_cmd = if args.is_empty() {
-        format!("{} start", tb_path.display())
+    let env_prefix = env
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let tb_cmd = if env.is_empty() {
+        if args.is_empty() {
+            format!("{} start", tb_path.display())
+        } else {
+            format!("{} start {}", tb_path.display(), args.join(" "))
+        }
+    } else if args.is_empty() {
+        format!("{} {} start", env_prefix, tb_path.display())
     } else {
-        format!("{} start {}", tb_path.display(), args.join(" "))
+        format!(
+            "{} {} start {}",
+            env_prefix,
+            tb_path.display(),
+            args.join(" ")
+        )
     };
 
     // Send the command to the tmux session
@@ -258,5 +280,76 @@ mod start {
             "Error should mention 'interactive': {}",
             stderr
         );
+    }
+
+    #[test]
+    fn uses_tbtest_prefix_when_test_mode_set() {
+        cleanup_all_tb_sessions();
+
+        // When TB_TEST_MODE is set, sessions should use "tbtest-" prefix
+        // instead of "tb-" to avoid interfering with real sessions.
+
+        let (_, content) = run_tb_start_in_tmux_with_env(&[], &[("TB_TEST_MODE", "1")]);
+
+        // Extract session ID
+        if let Some(start) = content.find("Started session '") {
+            let rest = &content[start + 17..];
+            if let Some(end) = rest.find("'") {
+                let session_id = &rest[..end];
+
+                // The tmux session should be named "tbtest-{id}" not "tb-{id}"
+                let tbtest_exists = StdCommand::new("tmux")
+                    .args(["has-session", "-t", &format!("tbtest-{}", session_id)])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+
+                let tb_exists = StdCommand::new("tmux")
+                    .args(["has-session", "-t", &format!("tb-{}", session_id)])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+
+                assert!(tbtest_exists, "Session should exist with tbtest- prefix");
+                assert!(!tb_exists, "Session should NOT exist with tb- prefix");
+
+                // Cleanup
+                let _ = StdCommand::new("tmux")
+                    .args(["kill-session", "-t", &format!("tbtest-{}", session_id)])
+                    .output();
+                return;
+            }
+        }
+        panic!("Could not extract session ID from output: {}", content);
+    }
+
+    #[test]
+    fn uses_tb_prefix_when_test_mode_not_set() {
+        cleanup_all_tb_sessions();
+
+        // Without TB_TEST_MODE, sessions should use normal "tb-" prefix.
+
+        let (_, content) = run_tb_start_in_tmux(&[]);
+
+        // Extract session ID
+        if let Some(start) = content.find("Started session '") {
+            let rest = &content[start + 17..];
+            if let Some(end) = rest.find("'") {
+                let session_id = &rest[..end];
+
+                // The tmux session should be named "tb-{id}"
+                let tb_exists = StdCommand::new("tmux")
+                    .args(["has-session", "-t", &format!("tb-{}", session_id)])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+
+                assert!(tb_exists, "Session should exist with tb- prefix");
+
+                cleanup_session(session_id);
+                return;
+            }
+        }
+        panic!("Could not extract session ID from output: {}", content);
     }
 }
