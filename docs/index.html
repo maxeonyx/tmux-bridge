@@ -100,14 +100,15 @@
       position: relative;
     }
     .codeblock-wide {
-      margin-left: calc(-2rem - 40px);
-      margin-right: calc(-2rem - 40px);
-      padding-left: calc(2rem + 40px);
-      padding-right: calc(2rem + 40px);
+      /* Desktop: expand to 66vw, centered */
+      width: 66vw;
+      margin-left: calc((100% - 66vw) / 2);
       border-radius: 0;
     }
     @media (max-width: 759px) {
       .codeblock-wide {
+        /* Mobile: full width with hidden scrollbar */
+        width: auto;
         margin-left: -2rem;
         margin-right: -2rem;
         padding-left: 1.25rem;
