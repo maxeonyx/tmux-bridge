@@ -3,9 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <title>tmux-bridge</title>
   <style>
     :root {
+      color-scheme: light dark;
       --bg: #fafafa;
       --fg: #1a1a1a;
       --muted: #666;
@@ -97,34 +99,27 @@
       margin-bottom: 1.5rem;
       white-space: pre;
       position: relative;
+      overflow-x: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .codeblock::-webkit-scrollbar {
+      height: 6px;
+    }
+    .codeblock::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .codeblock::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
     }
     .codeblock-wide {
-      /* Desktop: expand as needed, min article width, max 66vw or article width */
-      width: fit-content;
-      max-width: max(100%, 66vw);
-      margin-left: auto;
-      margin-right: auto;
-      transform: translateX(calc((100% - min(100%, 66vw)) / -2));
+      /* Break out of container, center to viewport */
+      width: max(100%, 66vw);
+      position: relative;
+      left: 50%;
+      transform: translateX(-50%);
       border-radius: 0;
-    }
-    @media (max-width: 759px) {
-      .codeblock-wide {
-        /* Mobile: full width with hidden scrollbar */
-        width: auto;
-        max-width: none;
-        transform: none;
-        margin-left: -2rem;
-        margin-right: -2rem;
-        padding-left: 1.25rem;
-        padding-right: 1.25rem;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-      }
-      .codeblock-wide::-webkit-scrollbar {
-        display: none;
-      }
     }
     .codeblock .comment { color: var(--comment); }
     .codeblock .cmd { color: var(--cmd); font-weight: 500; }
