@@ -95,21 +95,24 @@
       font-family: "SF Mono", "Fira Code", "Consolas", monospace;
       font-size: 0.85rem;
       margin-bottom: 1.5rem;
-      overflow-x: auto;
       white-space: pre;
       position: relative;
     }
     .codeblock-wide {
-      /* Desktop: expand as needed up to 66vw, min is article width */
+      /* Desktop: expand as needed, min article width, max 66vw or article width */
       width: fit-content;
-      min-width: 100%;
-      max-width: 66vw;
+      max-width: max(100%, 66vw);
+      margin-left: auto;
+      margin-right: auto;
+      transform: translateX(calc((100% - min(100%, 66vw)) / -2));
       border-radius: 0;
     }
     @media (max-width: 759px) {
       .codeblock-wide {
         /* Mobile: full width with hidden scrollbar */
         width: auto;
+        max-width: none;
+        transform: none;
         margin-left: -2rem;
         margin-right: -2rem;
         padding-left: 1.25rem;
