@@ -100,9 +100,10 @@
       position: relative;
     }
     .codeblock-wide {
-      /* Desktop: expand to 66vw, centered */
-      width: 66vw;
-      margin-left: calc((100% - 66vw) / 2);
+      /* Desktop: expand as needed up to 66vw, min is article width */
+      width: fit-content;
+      min-width: 100%;
+      max-width: 66vw;
       border-radius: 0;
     }
     @media (max-width: 759px) {
