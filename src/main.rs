@@ -19,9 +19,15 @@ fn session_prefix() -> &'static str {
     }
 }
 
-/// Format a full tmux session name from a session ID
+/// Format a full tmux session name from a session ID.
+/// Idempotent: if session_id already has the prefix, returns it unchanged.
 fn tmux_session_name(session_id: &str) -> String {
-    format!("{}{}", session_prefix(), session_id)
+    let prefix = session_prefix();
+    if session_id.starts_with(prefix) {
+        session_id.to_string()
+    } else {
+        format!("{}{}", prefix, session_id)
+    }
 }
 
 #[derive(Parser)]
