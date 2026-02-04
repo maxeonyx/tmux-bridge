@@ -58,6 +58,22 @@ mod run_session_resolution {
             .stderr(predicate::str::contains("not found"))
             .stderr(predicate::str::contains("tb start"));
     }
+
+    #[test]
+    fn accepts_session_id_with_prefix() {
+        let session = TestSession::new();
+
+        // User might provide the full tmux session name including prefix
+        // e.g., TB_SESSION=tbtest-test123 instead of just test123
+        let full_name = session.tmux_name();
+
+        tb_cmd()
+            .env("TB_SESSION", &full_name)
+            .args(["run", "--", "echo", "prefix works"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("prefix works"));
+    }
 }
 
 mod run_command_execution {
