@@ -31,7 +31,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 # Build
 cargo build
 
-# Run tests (47 E2E tests defining behavior)
+# Run tests (51 E2E tests defining behavior)
 cargo test
 
 # Run specific test file
@@ -43,11 +43,49 @@ cargo test --test done
 
 # Run with release optimizations
 cargo build --release
+
+# Run the test ratchet (CI uses this)
+python3 scripts/ratchet.py
 ```
 
-### Test Status
+### Test Ratchet
 
-All tests are **failing** - they define the expected behavior but the implementation uses `todo!()` stubs. See `TODO.md` for implementation tasks.
+The project uses a test ratchet system (`scripts/ratchet.py`) that enforces:
+
+1. **TDD workflow**: New tests must be added as "pending" (failing) first, then promoted to "passing" in a separate commit
+2. **No regressions**: Once a test passes, it must keep passing
+3. **No silent removal**: Tests in `.test-status.json` must exist
+
+When adding a new test:
+1. Add the test code
+2. Add entry to `.test-status.json` as `"pending"`
+3. Commit: "Add failing test for X"
+4. Implement the fix
+5. Change status to `"passing"` in `.test-status.json`
+6. Commit: "Fix X"
+
+## Releasing
+
+Releases are automated via GitHub Actions when a version tag is pushed.
+
+```bash
+# After merging changes to main:
+git tag v0.1.1
+git push --tags
+```
+
+This triggers the CI workflow which:
+1. Runs the test ratchet
+2. Builds binaries for linux-amd64, linux-amd64-musl, macos-amd64, macos-arm64
+3. Creates a GitHub release with the binaries
+
+### After Release
+
+Update the skill file in your opencode config if needed:
+```bash
+curl -sLo ~/.config/opencode/skills/tmux-bridge/SKILL.md \
+     https://maxeonyx.github.io/tmux-bridge/SKILL.md
+```
 
 ## Project Structure
 
