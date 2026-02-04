@@ -37,6 +37,7 @@
     "run_command_execution::simple_echo_returns_output": "passing",
     "run_output_truncation::does_not_truncate_short_output": "passing",
     "run_output_truncation::truncates_long_output": "passing",
+    "run_session_resolution::accepts_session_id_with_prefix": "pending",
     "run_session_resolution::fails_with_nonexistent_session": "passing",
     "run_session_resolution::fails_without_session": "passing",
     "run_session_resolution::session_flag_overrides_env_var": "passing",
