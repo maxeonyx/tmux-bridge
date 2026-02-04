@@ -10,7 +10,10 @@ If "No session specified", ask user to run `tb start`.
 
 ## Install
 
-Curl + chmod the binary to ~/.local/bin from github maxeonyx/tmux-bridge latest release.
+```bash
+curl -Lo ~/.local/bin/tb https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-amd64
+chmod +x ~/.local/bin/tb
+```
 
 ## Synchronous
 
