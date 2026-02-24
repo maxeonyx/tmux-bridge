@@ -44,14 +44,14 @@ enum Commands {
     /// Start a new tmux-bridge session (human runs this)
     Start {
         /// Use a specific session ID instead of auto-generating
-        #[arg(long)]
+        #[arg(short, long)]
         session: Option<String>,
     },
 
     /// Run a command synchronously and wait for output (agent uses this)
     Run {
         /// Use specific session (default: $TB_SESSION)
-        #[arg(long)]
+        #[arg(short, long)]
         session: Option<String>,
 
         /// No-output timeout in seconds
@@ -78,7 +78,7 @@ enum Commands {
     /// Launch a background task in a split pane (agent uses this)
     Launch {
         /// Use specific session (default: $TB_SESSION)
-        #[arg(long)]
+        #[arg(short, long)]
         session: Option<String>,
 
         /// The command to run
@@ -92,7 +92,7 @@ enum Commands {
         task: String,
 
         /// Use specific session (default: $TB_SESSION)
-        #[arg(long)]
+        #[arg(short, long)]
         session: Option<String>,
 
         /// Lines to show from start of output
@@ -110,7 +110,7 @@ enum Commands {
         task: String,
 
         /// Use specific session (default: $TB_SESSION)
-        #[arg(long)]
+        #[arg(short, long)]
         session: Option<String>,
     },
 }
