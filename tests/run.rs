@@ -60,6 +60,17 @@ mod run_session_resolution {
     }
 
     #[test]
+    fn accepts_short_session_flag() {
+        let session = TestSession::new();
+
+        tb_cmd()
+            .args(["run", "-s", &session.id, "--", "echo", "short flag"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("short flag"));
+    }
+
+    #[test]
     fn accepts_session_id_with_prefix() {
         let session = TestSession::new();
 
