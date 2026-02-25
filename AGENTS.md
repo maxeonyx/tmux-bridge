@@ -81,6 +81,11 @@ This triggers the CI workflow which:
 
 ### After Release
 
+Install locally:
+```bash
+cargo install --path .
+```
+
 Update the skill file in your opencode config if needed:
 ```bash
 curl -sLo ~/.config/opencode/skills/tmux-bridge/SKILL.md \
