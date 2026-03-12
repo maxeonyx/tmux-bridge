@@ -11,7 +11,7 @@ If "No session specified", ask user to run `tb start`.
 ## Install
 
 ```bash
-curl -Lo ~/.local/bin/tb https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-amd64
+curl -Lo ~/.local/bin/tb https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-x86_64-linux
 chmod +x ~/.local/bin/tb
 ```
 
