@@ -183,12 +183,29 @@ fn cmd_start(session: Option<String>) -> Result<(), String> {
     use std::io::Write;
     let _ = std::io::stdout().flush();
 
-    // exec replaces this process with tmux attach
-    use std::os::unix::process::CommandExt;
-    let err = Command::new("tmux")
-        .args(["attach-session", "-t", &tmux_name])
-        .exec();
-    Err(format!("Failed to attach to session: {}", err))
+    #[cfg(unix)]
+    {
+        // exec replaces this process with tmux attach
+        use std::os::unix::process::CommandExt;
+        let err = Command::new("tmux")
+            .args(["attach-session", "-t", &tmux_name])
+            .exec();
+        Err(format!("Failed to attach to session: {}", err))
+    }
+
+    #[cfg(not(unix))]
+    {
+        let status = Command::new("tmux")
+            .args(["attach-session", "-t", &tmux_name])
+            .status()
+            .map_err(|e| format!("Failed to run tmux: {}", e))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err("Failed to attach to session.".to_string())
+        }
+    }
 }
 
 /// Check if a session with the given ID already exists
