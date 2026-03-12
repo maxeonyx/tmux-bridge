@@ -211,7 +211,7 @@
 
     <h2>Install</h2>
     <div class="codeblock codeblock-wide" id="install-block"><span class="comment"># Linux x86_64</span>
-<span class="cmd">curl</span> -Lo ~/.local/bin/tb <span class="str">https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-x86_64-linux</span>
+<span class="cmd">curl</span> -Lo ~/.local/bin/tb <span class="str">https://tmux-bridge.maxeonyx.com/releases/tb-x86_64-linux</span>
 <span class="cmd">chmod</span> +x ~/.local/bin/tb<button class="copy-btn" onclick="copyInstall()">Copy</button></div>
 
     <h2>Agent Skill</h2>
@@ -232,7 +232,7 @@ Use `<span class="cmd">tb</span>` for interactive commands (sudo, auth) or backg
 If "No session specified", ask user to run `<span class="cmd">tb start</span>`.
 
 <span class="comment"># Install</span>
-<span class="cmd">curl</span> -Lo ~/.local/bin/tb <span class="str">https://github.com/.../tb-x86_64-linux</span>
+<span class="cmd">curl</span> -Lo ~/.local/bin/tb <span class="str">https://tmux-bridge.maxeonyx.com/releases/tb-x86_64-linux</span>
 <span class="cmd">chmod</span> +x ~/.local/bin/tb
 
 <span class="comment"># Synchronous</span>
@@ -251,7 +251,7 @@ If "No session specified", ask user to run `<span class="cmd">tb start</span>`.
 
   <script>
     function copyInstall() {
-      const text = `curl -Lo ~/.local/bin/tb https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-x86_64-linux
+      const text = `curl -Lo ~/.local/bin/tb https://tmux-bridge.maxeonyx.com/releases/tb-x86_64-linux
 chmod +x ~/.local/bin/tb`;
       navigator.clipboard.writeText(text);
       event.target.textContent = 'Copied!';

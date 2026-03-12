@@ -3,24 +3,38 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  ratchet:
+  check:
+    name: Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Install tmux
         run: sudo apt-get update && sudo apt-get install -y tmux
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
 
       - name: Run test ratchet
         run: python3 scripts/ratchet.py
@@ -32,79 +46,81 @@ jobs:
             exit 1
           fi
 
-  release:
-    needs: ratchet
-    if: startsWith(github.ref, 'refs/tags/v')
+  build:
+    name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    needs: [check]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: tb
-            asset_name: tb-x86_64-linux
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            artifact_name: tb
-            asset_name: tb-x86_64-linux-musl
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact_name: tb
-            asset_name: tb-aarch64-linux
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact_name: tb
-            asset_name: tb-x86_64-macos
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact_name: tb
-            asset_name: tb-aarch64-macos
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: tb.exe
-            asset_name: tb-x86_64-windows.exe
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: tb
+            asset: tb-x86_64-linux
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            binary: tb
+            asset: tb-x86_64-linux-musl
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: tb
+            asset: tb-aarch64-linux
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            binary: tb
+            asset: tb-x86_64-macos
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            binary: tb
+            asset: tb-aarch64-macos
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            binary: tb.exe
+            asset: tb-x86_64-windows.exe
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
       - name: Install musl tools
         if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
 
-      - name: Install AArch64 linker
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Build release
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Build release (aarch64 linux)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      - name: Build
         run: cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-      - name: Rename binary
-        run: |
-          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
+      - name: Prepare asset (Unix)
+        if: runner.os != 'Windows'
+        run: cp target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.asset }}
+
+      - name: Prepare asset (Windows)
+        if: runner.os == 'Windows'
+        run: Copy-Item target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.asset }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: ${{ matrix.asset_name }}
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
 
-  publish:
-    needs: release
+  release:
+    name: Release
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
     permissions:
       contents: write
     steps:
@@ -115,16 +131,56 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/tb-x86_64-linux/tb-x86_64-linux
-            artifacts/tb-x86_64-linux-musl/tb-x86_64-linux-musl
-            artifacts/tb-aarch64-linux/tb-aarch64-linux
-            artifacts/tb-x86_64-macos/tb-x86_64-macos
-            artifacts/tb-aarch64-macos/tb-aarch64-macos
-            artifacts/tb-x86_64-windows.exe/tb-x86_64-windows.exe
-          generate_release_notes: true
+      - name: Read version from Cargo.toml
+        id: version
+        run: echo "tag=v$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.version.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$tag"
+          else
+            gh release create "$tag" --title "$tag" --generate-notes
+          fi
+          gh release upload "$tag" artifacts/*/* --clobber
+
+  pages:
+    name: Pages
+    runs-on: ubuntu-latest
+    needs: [build]
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare site content
+        run: |
+          rm -rf _site
+          mkdir -p _site/releases
+          cp -R docs/. _site/
+          cp artifacts/*/* _site/releases/
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
