@@ -34,7 +34,7 @@
     "run_command_execution::preserves_exit_status_nonzero": "passing",
     "run_command_execution::preserves_exit_status_zero": "passing",
     "run_command_execution::preserves_specific_exit_code": "passing",
-    "run_command_execution::single_arg_multi_statement_script_runs_as_shell_code": "pending",
+    "run_command_execution::single_arg_multi_statement_script_runs_as_shell_code": "passing",
     "run_command_execution::simple_echo_returns_output": "passing",
     "run_output_truncation::does_not_truncate_short_output": "passing",
     "run_output_truncation::truncates_long_output": "passing",

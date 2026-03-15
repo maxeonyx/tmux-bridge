@@ -379,10 +379,7 @@ fn resolve_session(session: Option<String>) -> Result<String, String> {
 
 /// Build the shell command with markers
 fn build_shell_command(command: &[String], marker_id: &str) -> String {
-    // For the inner sh -c script, escape arguments using double quotes
-    // This avoids the quote-nesting problem with single quotes
-    let escaped: Vec<String> = command.iter().map(|arg| double_quote_escape(arg)).collect();
-    let cmd_str = escaped.join(" ");
+    let cmd_str = shell_command_text(command);
 
     // Build the inner script that will run inside sh -c
     // This script: echoes start marker, runs command, echoes end marker with exit status
@@ -396,6 +393,17 @@ fn build_shell_command(command: &[String], marker_id: &str) -> String {
     let escaped_script = inner_script.replace('\'', "'\\''");
 
     format!("sh -c '{}'", escaped_script)
+}
+
+fn shell_command_text(command: &[String]) -> String {
+    match command {
+        [script] => script.clone(),
+        _ => command
+            .iter()
+            .map(|arg| double_quote_escape(arg))
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
 }
 
 /// Escape a string using double quotes (for use inside sh -c)
@@ -573,8 +581,7 @@ fn cmd_launch(session: Option<String>, command: Vec<String>) -> Result<(), Strin
     };
 
     // Build the command to run in the task pane
-    let escaped: Vec<String> = command.iter().map(|arg| double_quote_escape(arg)).collect();
-    let cmd_str = escaped.join(" ");
+    let cmd_str = shell_command_text(&command);
 
     // Send the command to the new pane
     let status = Command::new("tmux")
