@@ -443,8 +443,7 @@ fn extract_output(content: &str, start_marker: &str, end_marker_prefix: &str) ->
         // Match lines that start with the marker (not just contain it)
         if start_idx.is_none() && line.starts_with(start_marker) {
             start_idx = Some(i + 1); // Start after the marker line
-        }
-        if line.starts_with(end_marker_prefix) {
+        } else if start_idx.is_some() && line.starts_with(end_marker_prefix) {
             end_idx = Some(i);
             break;
         }
