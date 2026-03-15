@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
+use common::{cleanup_all_tb_sessions, tb_cmd, TestSession};
 use predicates::prelude::*;
 use std::time::Duration;
 
@@ -173,6 +173,19 @@ mod run_command_execution {
             .assert()
             .success()
             .stdout(predicate::str::contains("it's a \"quoted\" string"));
+    }
+
+    #[test]
+    fn single_arg_multi_statement_script_runs_as_shell_code() {
+        let session = TestSession::new();
+
+        tb_cmd()
+            .env("TB_SESSION", &session.id)
+            .args(["run", "--timeout", "5", "--", "echo hello; echo world"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("hello"))
+            .stdout(predicate::str::contains("world"));
     }
 }
 
