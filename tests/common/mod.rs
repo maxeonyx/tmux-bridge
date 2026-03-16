@@ -7,6 +7,8 @@
 
 use assert_cmd::Command;
 use std::process::Command as StdCommand;
+use std::thread;
+use std::time::{Duration, Instant};
 
 /// The prefix used for test sessions (matches TB_TEST_MODE behavior)
 const TEST_SESSION_PREFIX: &str = "tbtest-";
@@ -83,6 +85,47 @@ impl TestSession {
         let mut cmd = Command::cargo_bin("tb").unwrap();
         cmd.env("TB_TEST_MODE", "1").env("TB_SESSION", &self.id);
         cmd
+    }
+
+    /// Poll `tb check` until its stdout matches the predicate or timeout expires.
+    pub fn wait_for_check_output<F>(&self, task_id: &str, mut predicate: F) -> String
+    where
+        F: FnMut(&str) -> bool,
+    {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let poll_interval = Duration::from_millis(100);
+        loop {
+            let output = Command::cargo_bin("tb")
+                .unwrap()
+                .env("TB_TEST_MODE", "1")
+                .env("TB_SESSION", &self.id)
+                .args(["check", task_id])
+                .output()
+                .expect("Failed to run tb check");
+
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+            if !output.status.success() {
+                panic!(
+                    "tb check failed while waiting for task {}\nstdout:\n{}\nstderr:\n{}",
+                    task_id, stdout, stderr
+                );
+            }
+
+            if predicate(&stdout) {
+                return stdout;
+            }
+
+            if Instant::now() >= deadline {
+                panic!(
+                    "Timed out waiting for tb check output for task {}\nlast stdout:\n{}\nlast stderr:\n{}",
+                    task_id, stdout, stderr
+                );
+            }
+
+            thread::sleep(poll_interval);
+        }
     }
 
     /// Count panes in this session

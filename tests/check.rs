@@ -52,8 +52,10 @@ mod check_output {
         // Launch a task that finishes quickly
         let task_id = session.launch_task(&["echo", "done"]);
 
-        // Wait for it to complete
-        thread::sleep(Duration::from_secs(1));
+        session.wait_for_check_output(&task_id, |stdout| {
+            (stdout.contains("complete") || stdout.contains("finished"))
+                && stdout.contains("tb done")
+        });
 
         tb_cmd()
             .env("TB_SESSION", &session.id)
@@ -71,7 +73,10 @@ mod check_output {
         // Launch a task that exits with specific code
         let task_id = session.launch_task(&["sh", "-c", "exit 42"]);
 
-        thread::sleep(Duration::from_secs(1));
+        session.wait_for_check_output(&task_id, |stdout| {
+            (stdout.contains("complete") || stdout.contains("finished"))
+                && (stdout.contains("42") || stdout.contains("exit"))
+        });
 
         tb_cmd()
             .env("TB_SESSION", &session.id)

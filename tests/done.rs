@@ -6,8 +6,6 @@ mod common;
 
 use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
 use predicates::prelude::*;
-use std::thread;
-use std::time::Duration;
 
 mod done_basic {
     use super::*;
@@ -94,8 +92,9 @@ mod done_with_finished_tasks {
         // Launch a task that finishes immediately
         let task_id = session.launch_task(&["echo", "done"]);
 
-        // Wait for it to complete
-        thread::sleep(Duration::from_secs(1));
+        session.wait_for_check_output(&task_id, |stdout| {
+            stdout.contains("complete") || stdout.contains("finished")
+        });
 
         // Should still be able to close the pane
         tb_cmd()
