@@ -31,7 +31,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 # Build
 cargo build
 
-# Run tests (51 E2E tests defining behavior)
+# Run tests (53 E2E tests defining behavior)
 cargo test
 
 # Run specific test file
