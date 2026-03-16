@@ -21,6 +21,16 @@ chmod +x ~/.local/bin/tb
 tb run -s <id> -- sudo apt install foo
 ```
 
+## Shell scripts
+
+Pass a multi-statement shell script as a single argument:
+
+```bash
+tb run -s <id> --timeout 60 -- 'echo "Starting..."; sudo systemctl restart nginx; echo "Done"'
+```
+
+When a single argument is passed after `--`, it's treated as shell code (not wrapped in quotes). Multiple arguments are each quoted individually.
+
 ## Background tasks
 
 ```bash
