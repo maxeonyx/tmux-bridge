@@ -67,27 +67,31 @@ When adding a new test:
 
 ## Releasing
 
-Releases are automated via GitHub Actions when a version tag is pushed.
+Use `./scripts/release.sh` as the primary release path.
 
 ```bash
-# After merging changes to main:
-git tag v0.1.1
-git push --tags
+# Auto-bump the patch version from Cargo.toml
+./scripts/release.sh
+
+# Or release an explicit version
+./scripts/release.sh 0.1.5
 ```
 
-This triggers the CI workflow which:
-1. Runs the test ratchet
-2. Builds binaries for linux-amd64, linux-amd64-musl, macos-amd64, macos-arm64
-3. Creates a GitHub release with the binaries
+The script runs the full release flow in order:
+1. Runs `python3 scripts/ratchet.py`
+2. Updates `Cargo.toml`
+3. Runs `cargo build` to refresh `Cargo.lock`
+4. Commits `Bump version to v{version}`
+5. Tags `v{version}`
+6. Pushes the commit and tags
+7. Runs `cargo install --path .`
+8. Prints the released version and local install path
+
+Releases are automated via GitHub Actions when the tag is pushed.
 
 **Always bump the version and tag a release** after merging behavioral changes (features, bug fixes, quoting changes). Don't leave unreleased work sitting on main.
 
 ### After Release
-
-Install locally:
-```bash
-cargo install --path .
-```
 
 Update the skill file in your opencode config if needed:
 ```bash
