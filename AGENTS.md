@@ -12,6 +12,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 |---------|---------|
 | `tb start` | Human starts session, displays ID like `a7x` |
 | `tb run` | Agent runs synchronous command, waits for output |
+| `tb run --dry-run` | Agent prints the exact `tmux send-keys` string without running it |
 | `tb launch` | Agent starts background task in split pane |
 | `tb check` | Agent checks background task status/output |
 | `tb done` | Agent closes background task pane |
@@ -31,7 +32,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 # Build
 cargo build
 
-# Run tests (53 E2E tests defining behavior)
+# Run tests (74 tests defining behavior)
 cargo test
 
 # Run specific test file
@@ -116,6 +117,16 @@ Commands use `--session ID` flag or `$TB_SESSION` environment variable.
 
 ### Command markers
 Format: `___START_$id___` and `___END_${id}_$exit_status___` where `$id` is random.
+
+### Why `sh -c` is always needed
+The marker wrapper uses `$?` to capture exit status, and `$?` is shell-dependent (bash/zsh: `$?`, fish: `$status`). Since the human's interactive shell could be anything, we must wrap in `sh -c '...'` to guarantee POSIX semantics. This is a fixed cost — don't try to optimize it away.
+
+### Quoting principles
+The human sees every command typed into their terminal. Quoting must be **correct** and **minimal** — only add quotes/escapes that are strictly necessary.
+
+- Markers (`___START_xxx___`) are alphanumeric + underscores — never quote them
+- Single-arg mode (opaque script): preserve the user's script exactly, only escape `'` for the outer `sh -c '...'` wrapper
+- Multi-arg mode: smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`) when possible, and double quotes with escaping as the rare fallback when the arg contains `'`
 
 ### Timeout behavior
 1. No-output timeout (default 10s) - no new output for N seconds
