@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{cleanup_all_tb_sessions, tb_cmd, TestSession};
+use common::{TestSession, tb_cmd};
 use predicates::prelude::*;
 
 mod launch_basic {
@@ -165,8 +165,6 @@ mod launch_session_resolution {
 
     #[test]
     fn fails_without_session() {
-        cleanup_all_tb_sessions();
-
         tb_cmd()
             .args(["launch", "--", "sleep", "60"])
             .assert()

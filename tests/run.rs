@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
+use common::{TestSession, tb_cmd};
 use predicates::prelude::*;
 use std::time::Duration;
 
@@ -50,8 +50,6 @@ mod run_session_resolution {
 
     #[test]
     fn fails_with_nonexistent_session() {
-        cleanup_all_tb_sessions();
-
         tb_cmd()
             .args(["run", "--session", "nonexistent99", "--", "echo", "hello"])
             .assert()

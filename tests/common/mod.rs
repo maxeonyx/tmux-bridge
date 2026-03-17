@@ -16,20 +16,22 @@ const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-pub struct WaitStatus<T> {
+// Generic polling primitives.
+
+struct WaitStatus<T> {
     value: Option<T>,
     observed: String,
 }
 
 impl<T> WaitStatus<T> {
-    pub fn ready(value: T, observed: impl Into<String>) -> Self {
+    fn ready(value: T, observed: impl Into<String>) -> Self {
         Self {
             value: Some(value),
             observed: observed.into(),
         }
     }
 
-    pub fn pending(observed: impl Into<String>) -> Self {
+    fn pending(observed: impl Into<String>) -> Self {
         Self {
             value: None,
             observed: observed.into(),
@@ -47,27 +49,28 @@ where
     F: FnMut() -> WaitStatus<T>,
 {
     let deadline = Instant::now() + timeout;
-    let mut last_observed: Option<String> = None;
+    let mut last_observed = String::from("<nothing observed>");
 
     loop {
         let status = probe();
-        last_observed = Some(status.observed);
+        last_observed = status.observed;
 
         if let Some(value) = status.value {
             return value;
         }
 
         if Instant::now() >= deadline {
-            let observed = last_observed.unwrap_or_else(|| String::from("<nothing observed>"));
             panic!(
                 "Timed out waiting for {} after {:?}\nlast observed:\n{}",
-                description, timeout, observed
+                description, timeout, last_observed
             );
         }
 
         thread::sleep(poll_interval);
     }
 }
+
+// Low-level tmux helpers.
 
 fn run_tmux_output(args: &[&str], description: &str) -> Output {
     StdCommand::new("tmux")
@@ -128,6 +131,14 @@ fn pane_snapshot(session_name: &str) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+fn has_tmux_session(session_name: &str) -> bool {
+    StdCommand::new("tmux")
+        .args(["has-session", "-t", session_name])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 pub fn wait_for_pane_count(session_name: &str, expected: usize) -> usize {
     let description = format!("pane count {} for tmux session {}", expected, session_name);
 
@@ -168,6 +179,8 @@ pub fn wait_for_session_exists(session_name: &str, timeout: Duration) {
         }
     });
 }
+
+// Session naming helpers.
 
 fn unique_token() -> String {
     let counter = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -227,6 +240,54 @@ impl TestSession {
 
     pub fn session_prefix(&self) -> &str {
         &self.prefix
+    }
+
+    pub fn wait_for_check_command_output<F>(
+        &self,
+        task_id: &str,
+        extra_args: &[&str],
+        mut predicate: F,
+    ) -> String
+    where
+        F: FnMut(&str) -> bool,
+    {
+        let description = format!(
+            "tb check {} output for task {} in session {}",
+            extra_args.join(" "),
+            task_id,
+            self.tmux_name()
+        );
+
+        wait_until(
+            &description,
+            DEFAULT_WAIT_TIMEOUT,
+            DEFAULT_POLL_INTERVAL,
+            || {
+                let output = self
+                    .tb_command()
+                    .args(["check", task_id])
+                    .args(extra_args)
+                    .output()
+                    .expect("Failed to run tb check while polling");
+
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                let observed = format!("stdout:\n{}\nstderr:\n{}", stdout, stderr);
+
+                if !output.status.success() {
+                    panic!(
+                        "tb check failed while waiting for task {}\n{}",
+                        task_id, observed
+                    );
+                }
+
+                if predicate(&stdout) {
+                    WaitStatus::ready(stdout.clone(), observed)
+                } else {
+                    WaitStatus::pending(observed)
+                }
+            },
+        )
     }
 
     /// Launch a task and return its task ID.
@@ -348,9 +409,9 @@ impl TestSession {
 
                 if !output.status.success() {
                     panic!(
-                    "tb check failed while waiting for main pane output\nstdout:\n{}\nstderr:\n{}",
-                    stdout, stderr
-                );
+                        "tb check failed while waiting for main pane output\nstdout:\n{}\nstderr:\n{}",
+                        stdout, stderr
+                    );
                 }
 
                 if predicate(&stdout) {
@@ -363,21 +424,12 @@ impl TestSession {
     }
 
     /// Count panes in this session.
-    pub fn count_panes(&self) -> usize {
+    fn count_panes(&self) -> usize {
         pane_snapshot(&self.tmux_name()).lines().count()
     }
 
     pub fn wait_for_pane_count(&self, expected: usize) -> usize {
         wait_for_pane_count(&self.tmux_name(), expected)
-    }
-
-    /// Check if the session still exists.
-    pub fn exists(&self) -> bool {
-        StdCommand::new("tmux")
-            .args(["has-session", "-t", &self.tmux_name()])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
     }
 }
 
@@ -396,50 +448,17 @@ fn extract_task_id(output: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Legacy helper retained for tests that want a best-effort cleanup boundary.
-pub fn cleanup_all_test_sessions() {
-    // Intentionally a no-op. Global cleanup races with parallel tests.
-}
-
-/// Legacy alias for cleanup_all_test_sessions (used in start.rs tests).
-pub fn cleanup_all_tb_sessions() {
-    cleanup_all_test_sessions();
-}
-
-/// Check if a specific test session exists with the default test prefix.
-pub fn test_session_exists(session_id: &str) -> bool {
-    StdCommand::new("tmux")
-        .args([
-            "has-session",
-            "-t",
-            &format!("{}{}", TEST_SESSION_PREFIX, session_id),
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
+// Convenience helpers for tests that work with raw session ids.
 
 /// Check if a specific session exists (checks tbtest- prefix for start.rs tests).
 pub fn session_exists(session_id: &str) -> bool {
-    let tbtest = StdCommand::new("tmux")
-        .args([
-            "has-session",
-            "-t",
-            &format!("{}{}", TEST_SESSION_PREFIX, session_id),
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let tbtest = has_tmux_session(&format!("{}{}", TEST_SESSION_PREFIX, session_id));
 
     if tbtest {
         return true;
     }
 
-    StdCommand::new("tmux")
-        .args(["has-session", "-t", &format!("tb-{}", session_id)])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    has_tmux_session(&format!("tb-{}", session_id))
 }
 
 /// Cleanup a specific session (tries both prefixes).

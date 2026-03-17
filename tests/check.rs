@@ -4,9 +4,8 @@
 
 mod common;
 
-use common::{cleanup_all_tb_sessions, tb_cmd, wait_until, TestSession, WaitStatus};
+use common::{TestSession, tb_cmd};
 use predicates::prelude::*;
-use std::time::Duration;
 
 mod check_output {
     use super::*;
@@ -152,38 +151,10 @@ mod check_truncation {
 
         session.wait_for_check_output(&task_id, |stdout| stdout.contains("READY"));
 
-        let stdout = wait_until(
-            &format!(
-                "truncated tb check output for task {} in session {}",
-                task_id,
-                session.tmux_name()
-            ),
-            Duration::from_secs(10),
-            Duration::from_millis(100),
-            || {
-                let output = session
-                    .tb_command()
-                    .args(["check", &task_id, "--first", "5", "--last", "5"])
-                    .output()
-                    .expect("Failed to run tb check with truncation flags");
-
-                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-                let observed = format!("stdout:\n{}\nstderr:\n{}", stdout, stderr);
-
-                if !output.status.success() {
-                    panic!(
-                        "tb check failed while waiting for truncation for task {}\n{}",
-                        task_id, observed
-                    );
-                }
-
-                if stdout.contains("truncated") {
-                    WaitStatus::ready(stdout.clone(), observed)
-                } else {
-                    WaitStatus::pending(observed)
-                }
-            },
+        let stdout = session.wait_for_check_command_output(
+            &task_id,
+            &["--first", "5", "--last", "5"],
+            |stdout| stdout.contains("truncated"),
         );
 
         assert!(
@@ -231,8 +202,6 @@ mod check_errors {
 
     #[test]
     fn fails_without_session() {
-        cleanup_all_tb_sessions();
-
         tb_cmd()
             .args(["check", "t1"])
             .assert()
