@@ -26,8 +26,8 @@ mod run_session_resolution {
     fn uses_tb_session_env_var() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--", "echo", "hello"])
             .assert()
             .success()
@@ -39,7 +39,8 @@ mod run_session_resolution {
         let session = TestSession::new();
 
         // Set env var to nonexistent session, but use --session with real one
-        tb_cmd()
+        session
+            .tb_command()
             .env("TB_SESSION", "nonexistent")
             .args(["run", "--session", &session.id, "--", "echo", "override"])
             .assert()
@@ -63,7 +64,8 @@ mod run_session_resolution {
     fn accepts_short_session_flag() {
         let session = TestSession::new();
 
-        tb_cmd()
+        session
+            .tb_command()
             .args(["run", "-s", &session.id, "--", "echo", "short flag"])
             .assert()
             .success()
@@ -78,7 +80,8 @@ mod run_session_resolution {
         // e.g., TB_SESSION=tbtest-test123 instead of just test123
         let full_name = session.tmux_name();
 
-        tb_cmd()
+        session
+            .tb_command()
             .env("TB_SESSION", &full_name)
             .args(["run", "--", "echo", "prefix works"])
             .assert()
@@ -94,8 +97,8 @@ mod run_command_execution {
     fn simple_echo_returns_output() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--", "echo", "hello world"])
             .assert()
             .success()
@@ -106,8 +109,8 @@ mod run_command_execution {
     fn captures_multiline_output() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--", "printf", "line1\\nline2\\nline3\\n"])
             .assert()
             .success()
@@ -120,8 +123,8 @@ mod run_command_execution {
     fn preserves_exit_status_zero() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--", "true"])
             .assert()
             .success();
@@ -131,8 +134,8 @@ mod run_command_execution {
     fn preserves_exit_status_nonzero() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--", "false"])
             .assert()
             .failure()
@@ -143,8 +146,8 @@ mod run_command_execution {
     fn preserves_specific_exit_code() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--", "sh", "-c", "exit 42"])
             .assert()
             .failure()
@@ -155,8 +158,8 @@ mod run_command_execution {
     fn handles_command_with_special_characters() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--", "echo", "hello; world && test | pipe"])
             .assert()
             .success()
@@ -167,8 +170,8 @@ mod run_command_execution {
     fn handles_command_with_quotes() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--", "echo", "it's a \"quoted\" string"])
             .assert()
             .success()
@@ -179,8 +182,8 @@ mod run_command_execution {
     fn single_arg_multi_statement_script_runs_as_shell_code() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--timeout", "5", "--", "echo hello; echo world"])
             .assert()
             .success()
@@ -195,8 +198,8 @@ mod run_single_arg_shell_quoting {
     fn assert_single_arg_script_exact(script: &str, expected_stdout: &str) {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .arg("run")
             .arg("--timeout")
             .arg("5")
@@ -379,8 +382,8 @@ mod run_timeouts {
         let session = TestSession::new();
 
         // sleep produces no output, should timeout
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--timeout", "2", "--", "sleep", "30"])
             .timeout(Duration::from_secs(10))
             .assert()
@@ -394,8 +397,8 @@ mod run_timeouts {
         let session = TestSession::new();
 
         // Command that produces output but runs too long
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args([
                 "run",
                 "--timeout",
@@ -418,8 +421,8 @@ mod run_timeouts {
     fn fast_command_does_not_timeout() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["run", "--timeout", "2", "--", "echo", "quick"])
             .assert()
             .success()
@@ -435,8 +438,8 @@ mod run_output_truncation {
         let session = TestSession::new();
 
         // Generate 200 lines, request first 5 and last 5
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args([
                 "run", "--first", "5", "--last", "5", "--", "seq", "1", "200",
             ])
@@ -453,8 +456,8 @@ mod run_output_truncation {
     fn does_not_truncate_short_output() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args([
                 "run", "--first", "50", "--last", "50", "--", "seq", "1", "10",
             ])

@@ -19,8 +19,8 @@ mod done_basic {
         // Should have 2 panes now
         assert_eq!(session.count_panes(), 2);
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["done", &task_id])
             .assert()
             .success();
@@ -35,8 +35,8 @@ mod done_basic {
 
         let task_id = session.launch_task(&["sleep", "60"]);
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["done", &task_id])
             .assert()
             .success()
@@ -54,29 +54,17 @@ mod done_basic {
         assert_eq!(session.count_panes(), 4);
 
         // Close middle one
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
-            .args(["done", &t2])
-            .assert()
-            .success();
+        session.tb_command().args(["done", &t2]).assert().success();
 
         assert_eq!(session.count_panes(), 3);
 
         // Close first
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
-            .args(["done", &t1])
-            .assert()
-            .success();
+        session.tb_command().args(["done", &t1]).assert().success();
 
         assert_eq!(session.count_panes(), 2);
 
         // Close last
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
-            .args(["done", &t3])
-            .assert()
-            .success();
+        session.tb_command().args(["done", &t3]).assert().success();
 
         assert_eq!(session.count_panes(), 1);
     }
@@ -97,8 +85,8 @@ mod done_with_finished_tasks {
         });
 
         // Should still be able to close the pane
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["done", &task_id])
             .assert()
             .success();
@@ -112,8 +100,8 @@ mod done_errors {
     fn fails_for_nonexistent_task() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["done", "t999"])
             .assert()
             .failure()
@@ -138,15 +126,15 @@ mod done_errors {
         let task_id = session.launch_task(&["sleep", "60"]);
 
         // Close it
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["done", &task_id])
             .assert()
             .success();
 
         // Try to close again
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["done", &task_id])
             .assert()
             .failure()
@@ -170,8 +158,8 @@ mod done_allows_new_launches {
         assert_eq!(session.count_panes(), 7);
 
         // Close one
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["done", &tasks[0]])
             .assert()
             .success();
@@ -179,8 +167,8 @@ mod done_allows_new_launches {
         assert_eq!(session.count_panes(), 6);
 
         // Should now be able to launch a new one
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["launch", "--", "sleep", "60"])
             .assert()
             .success();
