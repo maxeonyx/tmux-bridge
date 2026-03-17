@@ -34,6 +34,8 @@ mod check_output {
 
         let task_id = session.launch_task(&["sleep", "60"]);
 
+        session.wait_for_check_output(&task_id, |stdout| !stdout.contains("complete"));
+
         session
             .tb_command()
             .args(["check", &task_id])

@@ -47,20 +47,21 @@ where
     F: FnMut() -> WaitStatus<T>,
 {
     let deadline = Instant::now() + timeout;
-    let mut last_observed = String::from("<nothing observed>");
+    let mut last_observed: Option<String> = None;
 
     loop {
         let status = probe();
-        last_observed = status.observed;
+        last_observed = Some(status.observed);
 
         if let Some(value) = status.value {
             return value;
         }
 
         if Instant::now() >= deadline {
+            let observed = last_observed.unwrap_or_else(|| String::from("<nothing observed>"));
             panic!(
                 "Timed out waiting for {} after {:?}\nlast observed:\n{}",
-                description, timeout, last_observed
+                description, timeout, observed
             );
         }
 
