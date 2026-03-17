@@ -116,14 +116,22 @@ impl TestSession {
 
     /// Run `tb check` without a task ID and return the output.
     pub fn check_main_output(&self) -> std::process::Output {
-        Command::cargo_bin("tb")
-            .unwrap()
+        self.check_output(None)
+    }
+
+    fn check_output(&self, task_id: Option<&str>) -> std::process::Output {
+        let mut command = Command::cargo_bin("tb").unwrap();
+        command
             .env("TB_TEST_MODE", "1")
             .env("TB_SESSION_PREFIX", &self.prefix)
             .env("TB_SESSION", &self.id)
-            .arg("check")
-            .output()
-            .expect("Failed to run tb check")
+            .arg("check");
+
+        if let Some(task_id) = task_id {
+            command.arg(task_id);
+        }
+
+        command.output().expect("Failed to run tb check")
     }
 
     /// Poll `tb check` until its stdout matches the predicate or timeout expires.
@@ -134,14 +142,7 @@ impl TestSession {
         let deadline = Instant::now() + Duration::from_secs(10);
         let poll_interval = Duration::from_millis(100);
         loop {
-            let output = Command::cargo_bin("tb")
-                .unwrap()
-                .env("TB_TEST_MODE", "1")
-                .env("TB_SESSION_PREFIX", &self.prefix)
-                .env("TB_SESSION", &self.id)
-                .args(["check", task_id])
-                .output()
-                .expect("Failed to run tb check");
+            let output = self.check_output(Some(task_id));
 
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();

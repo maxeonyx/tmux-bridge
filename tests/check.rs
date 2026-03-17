@@ -1,6 +1,6 @@
 //! End-to-end black-box tests for `tb check`
 //!
-//! These tests verify checking on background task status and output.
+//! These tests verify checking task panes and the main session pane.
 
 mod common;
 
