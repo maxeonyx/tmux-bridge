@@ -6,12 +6,167 @@
 use assert_cmd::Command;
 use rand::Rng;
 use std::process::Command as StdCommand;
+use std::process::Output;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const TEST_SESSION_PREFIX: &str = "tbtest-";
+const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_POLL_INTERVAL: Duration = Duration::from_millis(100);
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+pub struct WaitStatus<T> {
+    value: Option<T>,
+    observed: String,
+}
+
+impl<T> WaitStatus<T> {
+    pub fn ready(value: T, observed: impl Into<String>) -> Self {
+        Self {
+            value: Some(value),
+            observed: observed.into(),
+        }
+    }
+
+    pub fn pending(observed: impl Into<String>) -> Self {
+        Self {
+            value: None,
+            observed: observed.into(),
+        }
+    }
+}
+
+pub fn wait_until<T, F>(
+    description: &str,
+    timeout: Duration,
+    poll_interval: Duration,
+    mut probe: F,
+) -> T
+where
+    F: FnMut() -> WaitStatus<T>,
+{
+    let deadline = Instant::now() + timeout;
+    let mut last_observed = String::from("<nothing observed>");
+
+    loop {
+        let status = probe();
+        last_observed = status.observed;
+
+        if let Some(value) = status.value {
+            return value;
+        }
+
+        if Instant::now() >= deadline {
+            panic!(
+                "Timed out waiting for {} after {:?}\nlast observed:\n{}",
+                description, timeout, last_observed
+            );
+        }
+
+        thread::sleep(poll_interval);
+    }
+}
+
+fn run_tmux_output(args: &[&str], description: &str) -> Output {
+    StdCommand::new("tmux")
+        .args(args)
+        .output()
+        .unwrap_or_else(|error| panic!("Failed to {}: {}", description, error))
+}
+
+pub fn capture_pane_content(target: &str) -> String {
+    let output = run_tmux_output(&["capture-pane", "-t", target, "-p"], "capture tmux pane");
+
+    if !output.status.success() {
+        panic!(
+            "Failed to capture tmux pane {}\nstdout:\n{}\nstderr:\n{}",
+            target,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+pub fn wait_for_pane_content<F>(
+    target: &str,
+    description: &str,
+    timeout: Duration,
+    mut predicate: F,
+) -> String
+where
+    F: FnMut(&str) -> bool,
+{
+    wait_until(description, timeout, DEFAULT_POLL_INTERVAL, || {
+        let content = capture_pane_content(target);
+        if predicate(&content) {
+            WaitStatus::ready(content.clone(), content)
+        } else {
+            WaitStatus::pending(content)
+        }
+    })
+}
+
+fn pane_snapshot(session_name: &str) -> String {
+    let output = run_tmux_output(
+        &["list-panes", "-t", session_name, "-F", "#{pane_id}"],
+        "list tmux panes",
+    );
+
+    if !output.status.success() {
+        panic!(
+            "Failed to list panes for {}\nstdout:\n{}\nstderr:\n{}",
+            session_name,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+pub fn wait_for_pane_count(session_name: &str, expected: usize) -> usize {
+    let description = format!("pane count {} for tmux session {}", expected, session_name);
+
+    wait_until(
+        &description,
+        DEFAULT_WAIT_TIMEOUT,
+        DEFAULT_POLL_INTERVAL,
+        || {
+            let snapshot = pane_snapshot(session_name);
+            let count = snapshot.lines().count();
+            let observed = format!("observed {} panes\n{}", count, snapshot);
+
+            if count == expected {
+                WaitStatus::ready(count, observed)
+            } else {
+                WaitStatus::pending(observed)
+            }
+        },
+    )
+}
+
+pub fn wait_for_session_exists(session_name: &str, timeout: Duration) {
+    let description = format!("tmux session {} to exist", session_name);
+
+    wait_until(&description, timeout, DEFAULT_POLL_INTERVAL, || {
+        let output = run_tmux_output(&["has-session", "-t", session_name], "check tmux session");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let observed = format!(
+            "tmux has-session exit status: {}\nstdout:\n{}\nstderr:\n{}",
+            output.status, stdout, stderr
+        );
+
+        if output.status.success() {
+            WaitStatus::ready((), observed)
+        } else {
+            WaitStatus::pending(observed)
+        }
+    });
+}
 
 fn unique_token() -> String {
     let counter = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -139,34 +294,37 @@ impl TestSession {
     where
         F: FnMut(&str) -> bool,
     {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let poll_interval = Duration::from_millis(100);
-        loop {
-            let output = self.check_output(Some(task_id));
+        let description = format!(
+            "tb check output for task {} in session {}",
+            task_id,
+            self.tmux_name()
+        );
 
-            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        wait_until(
+            &description,
+            DEFAULT_WAIT_TIMEOUT,
+            DEFAULT_POLL_INTERVAL,
+            || {
+                let output = self.check_output(Some(task_id));
 
-            if !output.status.success() {
-                panic!(
-                    "tb check failed while waiting for task {}\nstdout:\n{}\nstderr:\n{}",
-                    task_id, stdout, stderr
-                );
-            }
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                let observed = format!("stdout:\n{}\nstderr:\n{}", stdout, stderr);
 
-            if predicate(&stdout) {
-                return stdout;
-            }
+                if !output.status.success() {
+                    panic!(
+                        "tb check failed while waiting for task {}\nstdout:\n{}\nstderr:\n{}",
+                        task_id, stdout, stderr
+                    );
+                }
 
-            if Instant::now() >= deadline {
-                panic!(
-                    "Timed out waiting for tb check output for task {}\nlast stdout:\n{}\nlast stderr:\n{}",
-                    task_id, stdout, stderr
-                );
-            }
-
-            thread::sleep(poll_interval);
-        }
+                if predicate(&stdout) {
+                    WaitStatus::ready(stdout.clone(), observed)
+                } else {
+                    WaitStatus::pending(observed)
+                }
+            },
+        )
     }
 
     /// Poll `tb check` without a task ID until its stdout matches the predicate.
@@ -174,44 +332,42 @@ impl TestSession {
     where
         F: FnMut(&str) -> bool,
     {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let poll_interval = Duration::from_millis(100);
-        loop {
-            let output = self.check_main_output();
+        let description = format!("tb check main pane output for session {}", self.tmux_name());
 
-            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        wait_until(
+            &description,
+            DEFAULT_WAIT_TIMEOUT,
+            DEFAULT_POLL_INTERVAL,
+            || {
+                let output = self.check_main_output();
 
-            if !output.status.success() {
-                panic!(
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                let observed = format!("stdout:\n{}\nstderr:\n{}", stdout, stderr);
+
+                if !output.status.success() {
+                    panic!(
                     "tb check failed while waiting for main pane output\nstdout:\n{}\nstderr:\n{}",
                     stdout, stderr
                 );
-            }
+                }
 
-            if predicate(&stdout) {
-                return stdout;
-            }
-
-            if Instant::now() >= deadline {
-                panic!(
-                    "Timed out waiting for tb check main pane output\nlast stdout:\n{}\nlast stderr:\n{}",
-                    stdout, stderr
-                );
-            }
-
-            thread::sleep(poll_interval);
-        }
+                if predicate(&stdout) {
+                    WaitStatus::ready(stdout.clone(), observed)
+                } else {
+                    WaitStatus::pending(observed)
+                }
+            },
+        )
     }
 
     /// Count panes in this session.
     pub fn count_panes(&self) -> usize {
-        let output = StdCommand::new("tmux")
-            .args(["list-panes", "-t", &self.tmux_name(), "-F", "#{pane_id}"])
-            .output()
-            .expect("Failed to list panes");
+        pane_snapshot(&self.tmux_name()).lines().count()
+    }
 
-        String::from_utf8_lossy(&output.stdout).lines().count()
+    pub fn wait_for_pane_count(&self, expected: usize) -> usize {
+        wait_for_pane_count(&self.tmux_name(), expected)
     }
 
     /// Check if the session still exists.
