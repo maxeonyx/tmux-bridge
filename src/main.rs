@@ -393,7 +393,8 @@ fn build_shell_command(command: &[String], marker_id: &str) -> String {
     let cmd_str = shell_command_text(command);
 
     // Build the inner script that will run inside sh -c
-    // This script: echoes start marker, runs command, echoes end marker with exit status
+    // This script: echoes start marker, runs command, echoes end marker with exit status.
+    // Markers use only alphanumeric characters and underscores, so we keep them bare.
     let inner_script = format!(
         "echo ___START_{}___; {}; echo ___END_{}_$?___",
         marker_id, cmd_str, marker_id
@@ -417,6 +418,12 @@ fn shell_command_text(command: &[String]) -> String {
     }
 }
 
+/// Quote one argv element for the inner `sh -c` script.
+///
+/// We prefer the least noisy form that still preserves the exact argument:
+/// bare for shell-safe text, double quotes for whitespace/metacharacters,
+/// single quotes for literal shell symbols, and double quotes with escaping
+/// only when the argument itself contains a single quote.
 fn quote_shell_arg(s: &str) -> String {
     if is_bare_shell_arg(s) {
         return s.to_string();
@@ -433,6 +440,7 @@ fn quote_shell_arg(s: &str) -> String {
     format!("\"{}\"", s)
 }
 
+/// Bare arguments need no quoting in the inner shell script.
 fn is_bare_shell_arg(s: &str) -> bool {
     !s.is_empty()
         && s.chars().all(|c| {
@@ -441,10 +449,13 @@ fn is_bare_shell_arg(s: &str) -> bool {
         })
 }
 
+/// These characters are easiest to preserve literally with single quotes,
+/// as long as the argument does not itself contain a single quote.
 fn is_single_quote_symbol(c: char) -> bool {
     matches!(c, '\\' | '$' | '`' | '"' | '!')
 }
 
+/// Escape the characters that still have meaning inside double quotes.
 fn escape_for_double_quotes(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('$', "\\$")
