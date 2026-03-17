@@ -351,6 +351,8 @@ def main():
     else:
         print()
         print("✅ Ratchet passed!")
+        # Install the binary locally so we're always running the tested version.
+        subprocess.run(["cargo", "install", "--path", "."], check=False)
         print("=" * 60)
         return 0
 
