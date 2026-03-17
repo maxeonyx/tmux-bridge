@@ -278,17 +278,7 @@ fn cmd_run(
         return Ok(());
     }
 
-    let session_id = resolve_session(session)?;
-
-    // Verify session exists
-    if !session_exists(&session_id) {
-        return Err(format!(
-            "Session '{}' not found.\n\nStart a new session with: tb start",
-            session_id
-        ));
-    }
-
-    let tmux_name = tmux_session_name(&session_id);
+    let tmux_name = resolve_existing_session_name(session)?;
 
     // Generate unique marker ID
     let marker_id: String = {
@@ -335,17 +325,7 @@ fn cmd_run(
         }
 
         // Capture pane content
-        let output = Command::new("tmux")
-            .args([
-                "capture-pane",
-                "-t",
-                &tmux_name,
-                "-p",
-                "-S",
-                "-32768", // Capture full scrollback
-            ])
-            .output()
-            .map_err(|e| format!("Failed to capture pane: {}", e))?;
+        let output = capture_pane_scrollback(&tmux_name)?;
 
         let pane_content = String::from_utf8_lossy(&output.stdout);
 
@@ -391,6 +371,33 @@ fn resolve_session(session: Option<String>) -> Result<String, String> {
     }
 
     Err("No session specified.\n\nSet TB_SESSION environment variable, or use --session ID.\nAsk the user which tmux-bridge session to use.".to_string())
+}
+
+fn resolve_existing_session_name(session: Option<String>) -> Result<String, String> {
+    let session_id = resolve_session(session)?;
+
+    if !session_exists(&session_id) {
+        return Err(format!(
+            "Session '{}' not found.\n\nStart a new session with: tb start",
+            session_id
+        ));
+    }
+
+    Ok(tmux_session_name(&session_id))
+}
+
+fn capture_pane_scrollback(pane_target: &str) -> Result<std::process::Output, String> {
+    Command::new("tmux")
+        .args([
+            "capture-pane",
+            "-t",
+            pane_target,
+            "-p",
+            "-S",
+            "-32768", // Capture full scrollback
+        ])
+        .output()
+        .map_err(|e| format!("Failed to capture pane: {}", e))
 }
 
 /// Build the shell command with markers
@@ -546,17 +553,7 @@ fn kill_running_command(tmux_name: &str) {
 }
 
 fn cmd_launch(session: Option<String>, command: Vec<String>) -> Result<(), String> {
-    let session_id = resolve_session(session)?;
-
-    // Verify session exists
-    if !session_exists(&session_id) {
-        return Err(format!(
-            "Session '{}' not found.\n\nStart a new session with: tb start",
-            session_id
-        ));
-    }
-
-    let tmux_name = tmux_session_name(&session_id);
+    let tmux_name = resolve_existing_session_name(session)?;
 
     // Count existing task panes to get next task ID
     let task_count = count_task_panes(&tmux_name);
@@ -676,26 +673,13 @@ fn cmd_check(
     first: usize,
     last: usize,
 ) -> Result<(), String> {
-    let session_id = resolve_session(session)?;
-
-    // Verify session exists
-    if !session_exists(&session_id) {
-        return Err(format!(
-            "Session '{}' not found.\n\nStart a new session with: tb start",
-            session_id
-        ));
-    }
-
-    let tmux_name = tmux_session_name(&session_id);
+    let tmux_name = resolve_existing_session_name(session)?;
 
     // Find the pane with the matching task title
     let pane_id = find_task_pane(&tmux_name, &task)?;
 
     // Capture pane content
-    let output = Command::new("tmux")
-        .args(["capture-pane", "-t", &pane_id, "-p", "-S", "-32768"])
-        .output()
-        .map_err(|e| format!("Failed to capture pane: {}", e))?;
+    let output = capture_pane_scrollback(&pane_id)?;
 
     if !output.status.success() {
         return Err(format!("Task {} not found or pane inaccessible.", task));
@@ -703,28 +687,27 @@ fn cmd_check(
 
     let pane_content = String::from_utf8_lossy(&output.stdout);
 
-    // Check if process is still running by looking for shell prompt
-    let is_running = is_process_running(&pane_content);
-
     // Print the pane content (with truncation)
     print_output(&pane_content, first, last);
 
-    if is_running {
-        // Still running - no extra message needed (test expects no "complete" word)
-    } else {
-        // Task appears to have finished
-        // Try to find exit code from the pane content
-        let exit_code = find_task_exit_code(&pane_content);
-
-        println!();
-        match exit_code {
-            Some(code) => println!("Task {} finished with exit code {}.", task, code),
-            None => println!("Task {} appears complete.", task),
-        }
-        println!("Close pane with: tb done {}", task);
-    }
+    report_task_check_status(&task, &pane_content);
 
     Ok(())
+}
+
+fn report_task_check_status(task: &str, pane_content: &str) {
+    if is_process_running(pane_content) {
+        return;
+    }
+
+    let exit_code = find_task_exit_code(pane_content);
+
+    println!();
+    match exit_code {
+        Some(code) => println!("Task {} finished with exit code {}.", task, code),
+        None => println!("Task {} appears complete.", task),
+    }
+    println!("Close pane with: tb done {}", task);
 }
 
 /// Check if a process is still running in a pane
@@ -779,17 +762,7 @@ fn find_task_exit_code(pane_content: &str) -> Option<i32> {
 }
 
 fn cmd_done(task: String, session: Option<String>) -> Result<(), String> {
-    let session_id = resolve_session(session)?;
-
-    // Verify session exists
-    if !session_exists(&session_id) {
-        return Err(format!(
-            "Session '{}' not found.\n\nStart a new session with: tb start",
-            session_id
-        ));
-    }
-
-    let tmux_name = tmux_session_name(&session_id);
+    let tmux_name = resolve_existing_session_name(session)?;
 
     // Find the pane with the matching task title
     let pane_id = find_task_pane(&tmux_name, &task)?;
