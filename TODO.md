@@ -44,3 +44,4 @@ cargo test --test done
 
 - [ ] Remove old fish scripts (`bin/`)
 - [ ] Remove old fish tests (`test/`)
+- [ ] Fix flaky E2E tests — `start::rejects_duplicate_explicit_session_id` and others fail intermittently due to tmux session pollution between test runs. Running with `--test-threads=1` after `tmux kill-server` works around it, but root cause (test isolation / cleanup) needs fixing.
