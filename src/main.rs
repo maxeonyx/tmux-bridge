@@ -95,9 +95,9 @@ enum Commands {
         command: Vec<String>,
     },
 
-    /// Check on a background task's status and output
+    /// Check a task's status or capture the main pane
     Check {
-        /// The task ID (e.g., t1, t2)
+        /// Optional task ID (e.g., t1); omit to capture the main pane
         task: Option<String>,
 
         /// Use specific session (default: $TB_SESSION)
@@ -790,8 +790,7 @@ fn cmd_done(task: String, session: Option<String>) -> Result<(), String> {
 }
 
 /// Find pane ID for a task by its @tb_task option
-fn find_task_pane(tmux_name: &str, task: &str) -> Result<String, String> {
-    // List all panes with their @tb_task option
+fn list_panes_with_task_ids(tmux_name: &str) -> Result<Vec<(String, String)>, String> {
     let output = Command::new("tmux")
         .args([
             "list-panes",
@@ -807,13 +806,19 @@ fn find_task_pane(tmux_name: &str, task: &str) -> Result<String, String> {
         return Err("Failed to list panes.".to_string());
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            line.split_once(':')
+                .map(|(pane_id, task_id)| (pane_id.to_string(), task_id.to_string()))
+        })
+        .collect())
+}
 
-    for line in stdout.lines() {
-        if let Some((pane_id, task_id)) = line.split_once(':')
-            && task_id == task
-        {
-            return Ok(pane_id.to_string());
+fn find_task_pane(tmux_name: &str, task: &str) -> Result<String, String> {
+    for (pane_id, task_id) in list_panes_with_task_ids(tmux_name)? {
+        if task_id == task {
+            return Ok(pane_id);
         }
     }
 
@@ -824,28 +829,9 @@ fn find_task_pane(tmux_name: &str, task: &str) -> Result<String, String> {
 }
 
 fn find_main_pane(tmux_name: &str) -> Result<String, String> {
-    let output = Command::new("tmux")
-        .args([
-            "list-panes",
-            "-t",
-            tmux_name,
-            "-F",
-            "#{pane_id}:#{@tb_task}",
-        ])
-        .output()
-        .map_err(|e| format!("Failed to list panes: {}", e))?;
-
-    if !output.status.success() {
-        return Err("Failed to list panes.".to_string());
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    for line in stdout.lines() {
-        if let Some((pane_id, task_id)) = line.split_once(':')
-            && task_id.is_empty()
-        {
-            return Ok(pane_id.to_string());
+    for (pane_id, task_id) in list_panes_with_task_ids(tmux_name)? {
+        if task_id.is_empty() {
+            return Ok(pane_id);
         }
     }
 
