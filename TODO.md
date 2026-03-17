@@ -45,7 +45,7 @@ cargo test --test done
 - [ ] Remove old fish scripts (`bin/`)
 - [ ] Remove old fish tests (`test/`)
 - [x] Fix flaky E2E tests — fixed by giving each test unique tmux session IDs and removing global cleanup
-- [ ] **Fix remaining test flakiness** — ~1 in 3 full-suite runs hit a timing failure (different test each time). Root cause: some tests use fixed sleeps (500ms–1s) instead of polling for readiness. Key spots: `tests/start.rs` (`run_tb_start_in_tmux_with_env` uses 500ms sleep), `tests/check.rs` (fixed sleeps before assertions). Replace with polling/retry patterns matching the existing `wait_for_*` helpers.
+- [x] **Eliminate test flakiness** — replaced all fixed sleeps with polling helpers. Added `wait_until`, `wait_for_pane_content`, `wait_for_pane_count`, `wait_for_session_exists` to common helpers. Refactored `start.rs` with `RunnerSession` RAII cleanup and pane-content polling. 70/70 consecutive passes (from 66.7% baseline). Stress test script: `./scripts/stress-test.sh N`
 
 ### Documentation
 
