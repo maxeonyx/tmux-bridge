@@ -14,7 +14,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 | `tb run` | Agent runs synchronous command, waits for output |
 | `tb run --dry-run` | Agent prints the exact `tmux send-keys` string without running it |
 | `tb launch` | Agent starts background task in split pane |
-| `tb check` | Agent checks background task status/output |
+| `tb check` | Agent checks background task status/output, or captures main pane |
 | `tb done` | Agent closes background task pane |
 
 ## Key Design Decisions
@@ -32,7 +32,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 # Build
 cargo build
 
-# Run tests (74 tests defining behavior)
+# Run tests (78 tests defining behavior)
 cargo test
 
 # Run specific test file

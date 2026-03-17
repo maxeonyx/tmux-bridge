@@ -35,7 +35,7 @@ The human's terminal must feel completely normal. No special modes, no restricti
 - `tb start` = "start a shared terminal session"
 - `tb run` = "run a command and wait for output"
 - `tb launch` = "start a background task"
-- `tb check` = "how's that task going?"
+- `tb check` = "what's on screen?" / "how's that task going?"
 - `tb done` = "close that task's pane"
 
 ### Clean agent interface
@@ -186,15 +186,20 @@ Options:
 
 ### tb check
 
-Agent checks on a background task.
+Agent checks on a background task, or captures what the human sees in the main pane.
 
 ```
+# Check a background task
 $ tb check t1
 [output from the task pane]
 
 # If task has finished:
 Task t1 complete (exit 0).
 Close pane with: tb done t1
+
+# Capture the main pane (what the human sees)
+$ tb check
+[visible output from the main session pane]
 ```
 
 Options:
@@ -224,7 +229,6 @@ Distribution:
 
 ## Future Possibilities
 
-- **`tb check` for main session**: Allow `tb check` without a task ID to capture the main pane's visible output, so the agent can see what the human sees
 - **Cleaner human display**: Hide markers, show `[agent] $ command` prefix
 - **Concurrent command queue**: Multiple `tb run` calls handled sequentially
 - **Session persistence**: Keep session alive briefly after last terminal exits

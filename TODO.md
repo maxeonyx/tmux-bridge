@@ -2,7 +2,7 @@
 
 ## Current State
 
-The Rust CLI (`tb`) is **complete**. All 53 E2E tests pass.
+The Rust CLI (`tb`) is **complete**. All 78 E2E tests pass.
 
 ## Running Tests
 
@@ -25,7 +25,7 @@ cargo test --test done
 - [x] **`tb start`** - Create tmux session with auto-generated ID (7 tests)
 - [x] **`tb run`** - Synchronous command execution (16 tests)
 - [x] **`tb launch`** - Background task in split pane (9 tests)
-- [x] **`tb check`** - Check background task status (7 tests)
+- [x] **`tb check`** - Check background task status + main pane capture (11 tests)
 - [x] **`tb done`** - Close background task pane (8 tests)
 
 ### Infrastructure - COMPLETE
@@ -46,7 +46,10 @@ cargo test --test done
 - [ ] Remove old fish tests (`test/`)
 - [x] Fix flaky E2E tests — fixed by giving each test unique tmux session IDs and removing global cleanup
 
+### Documentation
+
+- [ ] **Document single-arg script mode** — agents assume they need `tb run -- bash -c 'script; here'` instead of just `tb run -- 'script; here'`. The single-arg mode already works (it wraps in `sh -c` automatically), but AGENTS.md, the opencode skill, and VISION.md don't make this obvious enough. Add clear examples showing that a single quoted arg IS a script — no `bash -c` wrapper needed.
+
 ### Future
 
-- [ ] **`tb check` for main session** — allow `tb check` without a task ID to capture the current visible output of the main session pane. Useful for agents to see what the human sees (e.g. after an interactive prompt, auth flow, or manual command).
 - [ ] **Auto-update** — `tb` should be able to update itself (e.g. `tb update` or automatic check on startup). Currently the release script installs locally, but remote machines with `tb` installed via curl still need manual updates.
