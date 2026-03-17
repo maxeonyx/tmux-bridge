@@ -6,6 +6,10 @@
   "tests": {
     "check_errors::fails_for_nonexistent_task": "passing",
     "check_errors::fails_without_session": "passing",
+    "check_main_output::captures_main_pane_even_when_task_panes_exist": "pending",
+    "check_main_output::does_not_show_task_lifecycle_messages_for_main_pane": "pending",
+    "check_main_output::shows_main_pane_output_without_task_id": "pending",
+    "check_main_truncation::respects_first_and_last_flags_for_main_pane": "pending",
     "check_output::shows_complete_status_and_done_hint_for_finished_task": "passing",
     "check_output::shows_exit_code_for_finished_task": "passing",
     "check_output::shows_running_status_for_active_task": "passing",

@@ -87,6 +87,59 @@ mod check_output {
     }
 }
 
+mod check_main_output {
+    use super::*;
+
+    #[test]
+    fn shows_main_pane_output_without_task_id() {
+        let session = TestSession::new();
+
+        session.send_main_pane_command("echo main pane output here");
+
+        session.wait_for_main_check_output(|stdout| stdout.contains("main pane output here"));
+
+        let output = session.check_main_output();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(output.status.success(), "tb check failed: {}", stdout);
+        assert!(stdout.contains("main pane output here"));
+    }
+
+    #[test]
+    fn captures_main_pane_even_when_task_panes_exist() {
+        let session = TestSession::new();
+
+        session.launch_task(&["sh", "-c", "echo task pane output; sleep 60"]);
+        session.send_main_pane_command("echo main pane stays visible");
+
+        session.wait_for_main_check_output(|stdout| stdout.contains("main pane stays visible"));
+
+        let output = session.check_main_output();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(output.status.success(), "tb check failed: {}", stdout);
+        assert!(stdout.contains("main pane stays visible"));
+        assert!(!stdout.contains("task pane output"));
+    }
+
+    #[test]
+    fn does_not_show_task_lifecycle_messages_for_main_pane() {
+        let session = TestSession::new();
+
+        session.send_main_pane_command("echo plain main pane snapshot");
+
+        session.wait_for_main_check_output(|stdout| stdout.contains("plain main pane snapshot"));
+
+        let output = session.check_main_output();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        assert!(output.status.success(), "tb check failed: {}", stdout);
+        assert!(!stdout.contains("appears complete"));
+        assert!(!stdout.contains("finished with exit code"));
+        assert!(!stdout.contains("Close pane with: tb done"));
+    }
+}
+
 mod check_truncation {
     use super::*;
 
@@ -102,6 +155,26 @@ mod check_truncation {
         session
             .tb_command()
             .args(["check", &task_id, "--first", "5", "--last", "5"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("truncated"));
+    }
+}
+
+mod check_main_truncation {
+    use super::*;
+
+    #[test]
+    fn respects_first_and_last_flags_for_main_pane() {
+        let session = TestSession::new();
+
+        session.send_main_pane_command("seq 1 200");
+
+        session.wait_for_main_check_output(|stdout| stdout.contains("200"));
+
+        session
+            .tb_command()
+            .args(["check", "--first", "5", "--last", "5"])
             .assert()
             .success()
             .stdout(predicate::str::contains("truncated"));
