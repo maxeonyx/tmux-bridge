@@ -44,4 +44,8 @@ cargo test --test done
 
 - [ ] Remove old fish scripts (`bin/`)
 - [ ] Remove old fish tests (`test/`)
-- [ ] Fix flaky E2E tests — `start::rejects_duplicate_explicit_session_id` and others fail intermittently due to tmux session pollution between test runs. Running with `--test-threads=1` after `tmux kill-server` works around it, but root cause (test isolation / cleanup) needs fixing.
+- [x] Fix flaky E2E tests — fixed by giving each test unique tmux session IDs and removing global cleanup
+
+### Future
+
+- [ ] **Auto-update** — `tb` should be able to update itself (e.g. `tb update` or automatic check on startup). Currently the release script installs locally, but remote machines with `tb` installed via curl still need manual updates.
