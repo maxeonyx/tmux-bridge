@@ -130,9 +130,11 @@ The marker wrapper uses `$?` to capture exit status, and `$?` is shell-dependent
 ### Quoting principles
 The human sees every command typed into their terminal. Quoting must be **correct** and **minimal** — only add quotes/escapes that are strictly necessary.
 
+- **Single-arg mode (shell script):** A single argument after `--` is treated as a shell script. `tb` wraps it in `sh -c '...'` automatically. **Never** add your own `bash -c` wrapper — that creates a redundant quoting layer.
+  - ✅ `tb run -- 'echo "hello"; ls -la'`
+  - ❌ `tb run -- bash -c 'echo "hello"; ls -la'`
+- **Multi-arg mode:** Multiple arguments after `--` are each quoted individually with smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`)
 - Markers (`___START_xxx___`) are alphanumeric + underscores — never quote them
-- Single-arg mode (opaque script): preserve the user's script exactly, only escape `'` for the outer `sh -c '...'` wrapper
-- Multi-arg mode: smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`) when possible, and double quotes with escaping as the rare fallback when the arg contains `'`
 
 ### Timeout behavior
 1. No-output timeout (default 10s) - no new output for N seconds

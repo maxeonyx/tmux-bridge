@@ -159,10 +159,16 @@ Options:
 Agent runs synchronous commands.
 
 ```
+# Simple command (each arg passed separately)
 $ tb run -- ls -la
 $ tb run --timeout 60 -- make build
-$ tb run --session a7x -- echo hello
+
+# Shell script (single arg = treated as shell code)
+$ tb run -- 'echo "Starting..."; make build && echo "Done"'
+$ tb run -- 'grep -r "TODO" src/ | wc -l'
 ```
+
+A single argument after `--` is treated as a shell script — `tb` wraps it in `sh -c` automatically. **Do not** wrap in `bash -c` yourself; that adds an unnecessary quoting layer.
 
 Options:
 - `--session ID` - Use specific session (default: `$TB_SESSION`)
