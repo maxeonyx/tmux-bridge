@@ -4,9 +4,8 @@
 
 mod common;
 
-use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
+use common::{cleanup_all_tb_sessions, tb_cmd, wait_until, TestSession, WaitStatus};
 use predicates::prelude::*;
-use std::thread;
 use std::time::Duration;
 
 mod check_output {
@@ -19,8 +18,7 @@ mod check_output {
         // Launch a task that outputs something
         let task_id = session.launch_task(&["sh", "-c", "echo 'task output here'; sleep 60"]);
 
-        // Give it a moment to produce output
-        thread::sleep(Duration::from_millis(500));
+        session.wait_for_check_output(&task_id, |stdout| stdout.contains("task output here"));
 
         session
             .tb_command()
@@ -148,16 +146,49 @@ mod check_truncation {
         let session = TestSession::new();
 
         // Launch task that outputs many lines
-        let task_id = session.launch_task(&["sh", "-c", "seq 1 200; sleep 60"]);
+        let task_id = session.launch_task(&["sh", "-c", "seq 1 200; echo READY; sleep 60"]);
 
-        thread::sleep(Duration::from_secs(1));
+        session.wait_for_check_output(&task_id, |stdout| stdout.contains("READY"));
 
-        session
-            .tb_command()
-            .args(["check", &task_id, "--first", "5", "--last", "5"])
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("truncated"));
+        let stdout = wait_until(
+            &format!(
+                "truncated tb check output for task {} in session {}",
+                task_id,
+                session.tmux_name()
+            ),
+            Duration::from_secs(10),
+            Duration::from_millis(100),
+            || {
+                let output = session
+                    .tb_command()
+                    .args(["check", &task_id, "--first", "5", "--last", "5"])
+                    .output()
+                    .expect("Failed to run tb check with truncation flags");
+
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                let observed = format!("stdout:\n{}\nstderr:\n{}", stdout, stderr);
+
+                if !output.status.success() {
+                    panic!(
+                        "tb check failed while waiting for truncation for task {}\n{}",
+                        task_id, observed
+                    );
+                }
+
+                if stdout.contains("truncated") {
+                    WaitStatus::ready(stdout.clone(), observed)
+                } else {
+                    WaitStatus::pending(observed)
+                }
+            },
+        );
+
+        assert!(
+            stdout.contains("truncated"),
+            "Expected truncation output: {}",
+            stdout
+        );
     }
 }
 
