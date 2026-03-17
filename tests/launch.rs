@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
+use common::{cleanup_all_tb_sessions, tb_cmd, TestSession};
 use predicates::prelude::*;
 
 mod launch_basic {
@@ -39,7 +39,11 @@ mod launch_basic {
         let session = TestSession::new();
 
         // Should start with 1 pane (main session)
-        assert_eq!(session.count_panes(), 1, "Should start with 1 pane");
+        assert_eq!(
+            session.wait_for_pane_count(1),
+            1,
+            "Should start with 1 pane"
+        );
 
         session
             .tb_command()
@@ -48,7 +52,11 @@ mod launch_basic {
             .success();
 
         // Should now have 2 panes
-        assert_eq!(session.count_panes(), 2, "Should have 2 panes after launch");
+        assert_eq!(
+            session.wait_for_pane_count(2),
+            2,
+            "Should have 2 panes after launch"
+        );
     }
 
     #[test]
@@ -98,7 +106,7 @@ mod launch_pane_layout {
                 .success();
 
             assert_eq!(
-                session.count_panes(),
+                session.wait_for_pane_count(i + 1),
                 i + 1,
                 "Should have {} panes after {} launches",
                 i + 1,
@@ -122,7 +130,7 @@ mod launch_pane_layout {
 
         // Should have 7 panes (1 main + 6 tasks)
         assert_eq!(
-            session.count_panes(),
+            session.wait_for_pane_count(7),
             7,
             "Should have 7 panes after 6 launches"
         );
