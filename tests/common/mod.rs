@@ -1,19 +1,38 @@
-//! Shared test utilities for E2E tests
+//! Shared test utilities for E2E tests.
 //!
-//! Provides session management with automatic cleanup via Drop.
-//!
-//! Tests use `TB_TEST_MODE=1` which makes tb use "tbtest-" prefix
-//! instead of "tb-", avoiding interference with real sessions.
+//! Each test gets its own tmux prefix and session names so parallel test runs do
+//! not interfere with each other.
 
 use assert_cmd::Command;
+use rand::Rng;
 use std::process::Command as StdCommand;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// The prefix used for test sessions (matches TB_TEST_MODE behavior)
 const TEST_SESSION_PREFIX: &str = "tbtest-";
+static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
-/// Create a tb command with TB_TEST_MODE=1 set
+fn unique_token() -> String {
+    let counter = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut rng = rand::thread_rng();
+    format!(
+        "{}-{}-{:08x}",
+        std::process::id(),
+        counter,
+        rng.r#gen::<u32>()
+    )
+}
+
+fn unique_prefix() -> String {
+    format!("{}{}-", TEST_SESSION_PREFIX, unique_token())
+}
+
+fn unique_session_id() -> String {
+    format!("test-{}", unique_token())
+}
+
+/// Create a tb command configured for isolated test mode.
 pub fn tb_cmd() -> Command {
     let mut cmd = Command::cargo_bin("tb").unwrap();
     cmd.env("TB_TEST_MODE", "1");
@@ -21,31 +40,18 @@ pub fn tb_cmd() -> Command {
 }
 
 /// A test session that automatically cleans up when dropped.
-///
-/// Use this instead of manually managing session cleanup:
-/// ```
-/// let session = TestSession::new();  // Creates session directly
-/// // ... run tests using session.id ...
-/// // Session is automatically killed when `session` goes out of scope
-/// ```
 pub struct TestSession {
     pub id: String,
+    prefix: String,
 }
 
 impl TestSession {
-    /// Start a new session directly via tmux and return a handle.
-    /// Cleans up any existing test sessions first.
-    ///
-    /// Note: We create sessions directly with tmux rather than `tb start`
-    /// because `tb start` requires an interactive terminal.
+    /// Start a new isolated session directly via tmux and return a handle.
     pub fn new() -> Self {
-        cleanup_all_test_sessions();
+        let prefix = unique_prefix();
+        let id = unique_session_id();
+        let tmux_name = format!("{}{}", prefix, id);
 
-        // Generate a simple test session ID
-        let id = format!("test{}", std::process::id() % 1000);
-        let tmux_name = format!("{}{}", TEST_SESSION_PREFIX, id);
-
-        // Create session directly with tmux
         let status = StdCommand::new("tmux")
             .args(["new-session", "-d", "-s", &tmux_name])
             .status()
@@ -55,19 +61,24 @@ impl TestSession {
             panic!("Failed to create tmux session {}", tmux_name);
         }
 
-        TestSession { id }
+        TestSession { id, prefix }
     }
 
-    /// Get the full tmux session name (tbtest-{id})
+    /// Get the full tmux session name for this isolated test session.
     pub fn tmux_name(&self) -> String {
-        format!("{}{}", TEST_SESSION_PREFIX, self.id)
+        format!("{}{}", self.prefix, self.id)
     }
 
-    /// Launch a task and return its task ID
+    pub fn session_prefix(&self) -> &str {
+        &self.prefix
+    }
+
+    /// Launch a task and return its task ID.
     pub fn launch_task(&self, command: &[&str]) -> String {
         let output = Command::cargo_bin("tb")
             .unwrap()
             .env("TB_TEST_MODE", "1")
+            .env("TB_SESSION_PREFIX", &self.prefix)
             .env("TB_SESSION", &self.id)
             .args(["launch", "--"])
             .args(command)
@@ -76,14 +87,15 @@ impl TestSession {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        // Extract task ID from "Task t1 started"
         extract_task_id(&stdout).expect(&format!("Could not extract task ID from: {}", stdout))
     }
 
-    /// Run a tb command with this session
+    /// Run a tb command with this session.
     pub fn tb_command(&self) -> Command {
         let mut cmd = Command::cargo_bin("tb").unwrap();
-        cmd.env("TB_TEST_MODE", "1").env("TB_SESSION", &self.id);
+        cmd.env("TB_TEST_MODE", "1")
+            .env("TB_SESSION_PREFIX", &self.prefix)
+            .env("TB_SESSION", &self.id);
         cmd
     }
 
@@ -98,6 +110,7 @@ impl TestSession {
             let output = Command::cargo_bin("tb")
                 .unwrap()
                 .env("TB_TEST_MODE", "1")
+                .env("TB_SESSION_PREFIX", &self.prefix)
                 .env("TB_SESSION", &self.id)
                 .args(["check", task_id])
                 .output()
@@ -128,7 +141,7 @@ impl TestSession {
         }
     }
 
-    /// Count panes in this session
+    /// Count panes in this session.
     pub fn count_panes(&self) -> usize {
         let output = StdCommand::new("tmux")
             .args(["list-panes", "-t", &self.tmux_name(), "-F", "#{pane_id}"])
@@ -138,7 +151,7 @@ impl TestSession {
         String::from_utf8_lossy(&output.stdout).lines().count()
     }
 
-    /// Check if the session still exists
+    /// Check if the session still exists.
     pub fn exists(&self) -> bool {
         StdCommand::new("tmux")
             .args(["has-session", "-t", &self.tmux_name()])
@@ -150,51 +163,30 @@ impl TestSession {
 
 impl Drop for TestSession {
     fn drop(&mut self) {
-        // Kill this specific session
         let _ = StdCommand::new("tmux")
             .args(["kill-session", "-t", &self.tmux_name()])
             .output();
     }
 }
 
-/// Extract task ID from tb launch output
 fn extract_task_id(output: &str) -> Option<String> {
-    // Format: "Task t1 started"
     let start = output.find("Task ")?;
     let rest = &output[start + 5..];
-    let end = rest.find(" ")?;
+    let end = rest.find(' ')?;
     Some(rest[..end].to_string())
 }
 
-/// Kill all test sessions (tbtest-*) and test runner sessions (for test isolation)
+/// Legacy helper retained for tests that want a best-effort cleanup boundary.
 pub fn cleanup_all_test_sessions() {
-    // Kill the test runner session if it exists
-    let _ = StdCommand::new("tmux")
-        .args(["kill-session", "-t", "tb-test-runner"])
-        .output();
-
-    if let Ok(output) = StdCommand::new("tmux")
-        .args(["list-sessions", "-F", "#{session_name}"])
-        .output()
-    {
-        let sessions = String::from_utf8_lossy(&output.stdout);
-        for session in sessions.lines() {
-            // Only clean up test sessions, not real tb-* sessions
-            if session.starts_with(TEST_SESSION_PREFIX) {
-                let _ = StdCommand::new("tmux")
-                    .args(["kill-session", "-t", session])
-                    .output();
-            }
-        }
-    }
+    // Intentionally a no-op. Global cleanup races with parallel tests.
 }
 
-/// Legacy alias for cleanup_all_test_sessions (used in start.rs tests)
+/// Legacy alias for cleanup_all_test_sessions (used in start.rs tests).
 pub fn cleanup_all_tb_sessions() {
     cleanup_all_test_sessions();
 }
 
-/// Check if a specific test session exists
+/// Check if a specific test session exists with the default test prefix.
 pub fn test_session_exists(session_id: &str) -> bool {
     StdCommand::new("tmux")
         .args([
@@ -207,9 +199,8 @@ pub fn test_session_exists(session_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Check if a specific session exists (checks tb- prefix for start.rs tests)
+/// Check if a specific session exists (checks tbtest- prefix for start.rs tests).
 pub fn session_exists(session_id: &str) -> bool {
-    // First check tbtest- (test mode)
     let tbtest = StdCommand::new("tmux")
         .args([
             "has-session",
@@ -224,7 +215,6 @@ pub fn session_exists(session_id: &str) -> bool {
         return true;
     }
 
-    // Fall back to tb- (for testing non-test-mode behavior)
     StdCommand::new("tmux")
         .args(["has-session", "-t", &format!("tb-{}", session_id)])
         .status()
@@ -232,7 +222,7 @@ pub fn session_exists(session_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Cleanup a specific session (tries both prefixes)
+/// Cleanup a specific session (tries both prefixes).
 pub fn cleanup_session(session_id: &str) {
     let _ = StdCommand::new("tmux")
         .args([

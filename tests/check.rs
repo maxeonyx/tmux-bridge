@@ -22,8 +22,8 @@ mod check_output {
         // Give it a moment to produce output
         thread::sleep(Duration::from_millis(500));
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["check", &task_id])
             .assert()
             .success()
@@ -36,8 +36,8 @@ mod check_output {
 
         let task_id = session.launch_task(&["sleep", "60"]);
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["check", &task_id])
             .assert()
             .success()
@@ -57,8 +57,8 @@ mod check_output {
                 && stdout.contains("tb done")
         });
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["check", &task_id])
             .assert()
             .success()
@@ -78,8 +78,8 @@ mod check_output {
                 && (stdout.contains("42") || stdout.contains("exit"))
         });
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["check", &task_id])
             .assert()
             .success()
@@ -99,8 +99,8 @@ mod check_truncation {
 
         thread::sleep(Duration::from_secs(1));
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["check", &task_id, "--first", "5", "--last", "5"])
             .assert()
             .success()
@@ -115,8 +115,8 @@ mod check_errors {
     fn fails_for_nonexistent_task() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["check", "t999"])
             .assert()
             .failure()

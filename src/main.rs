@@ -8,14 +8,19 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::process::Command;
 
-/// Returns the session prefix based on TB_TEST_MODE environment variable.
-/// When TB_TEST_MODE is set, returns "tbtest-" to avoid interfering with real sessions.
-/// Otherwise returns "tb-".
-fn session_prefix() -> &'static str {
+/// Returns the tmux session prefix for this process.
+///
+/// TB_SESSION_PREFIX is primarily for test isolation. TB_TEST_MODE keeps tests
+/// away from real tb-* sessions when no explicit prefix override is set.
+fn session_prefix() -> String {
+    if let Ok(prefix) = std::env::var("TB_SESSION_PREFIX") {
+        return prefix;
+    }
+
     if std::env::var("TB_TEST_MODE").is_ok() {
-        "tbtest-"
+        "tbtest-".to_string()
     } else {
-        "tb-"
+        "tb-".to_string()
     }
 }
 
@@ -23,7 +28,7 @@ fn session_prefix() -> &'static str {
 /// Idempotent: if session_id already has the prefix, returns it unchanged.
 fn tmux_session_name(session_id: &str) -> String {
     let prefix = session_prefix();
-    if session_id.starts_with(prefix) {
+    if session_id.starts_with(&prefix) {
         session_id.to_string()
     } else {
         format!("{}{}", prefix, session_id)
@@ -237,7 +242,7 @@ fn generate_session_id() -> Result<String, String> {
     let used_letters: HashSet<char> = stdout
         .lines()
         .filter_map(|line| {
-            if line.starts_with(prefix) && line.len() > prefix.len() {
+            if line.starts_with(&prefix) && line.len() > prefix.len() {
                 line.chars().nth(prefix.len())
             } else {
                 None

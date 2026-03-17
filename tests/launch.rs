@@ -14,8 +14,8 @@ mod launch_basic {
     fn returns_task_id() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["launch", "--", "sleep", "60"])
             .assert()
             .success()
@@ -26,8 +26,8 @@ mod launch_basic {
     fn output_includes_check_instruction() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["launch", "--", "sleep", "60"])
             .assert()
             .success()
@@ -41,8 +41,8 @@ mod launch_basic {
         // Should start with 1 pane (main session)
         assert_eq!(session.count_panes(), 1, "Should start with 1 pane");
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["launch", "--", "sleep", "60"])
             .assert()
             .success();
@@ -55,14 +55,14 @@ mod launch_basic {
     fn task_ids_are_sequential() {
         let session = TestSession::new();
 
-        let output1 = tb_cmd()
-            .env("TB_SESSION", &session.id)
+        let output1 = session
+            .tb_command()
             .args(["launch", "--", "sleep", "60"])
             .output()
             .unwrap();
 
-        let output2 = tb_cmd()
-            .env("TB_SESSION", &session.id)
+        let output2 = session
+            .tb_command()
             .args(["launch", "--", "sleep", "60"])
             .output()
             .unwrap();
@@ -91,8 +91,8 @@ mod launch_pane_layout {
         let session = TestSession::new();
 
         for i in 1..=3 {
-            tb_cmd()
-                .env("TB_SESSION", &session.id)
+            session
+                .tb_command()
                 .args(["launch", "--", "sleep", "60"])
                 .assert()
                 .success();
@@ -113,8 +113,8 @@ mod launch_pane_layout {
 
         // Launch 6 tasks
         for _ in 1..=6 {
-            tb_cmd()
-                .env("TB_SESSION", &session.id)
+            session
+                .tb_command()
                 .args(["launch", "--", "sleep", "60"])
                 .assert()
                 .success();
@@ -134,16 +134,16 @@ mod launch_pane_layout {
 
         // Launch 6 tasks
         for _ in 1..=6 {
-            tb_cmd()
-                .env("TB_SESSION", &session.id)
+            session
+                .tb_command()
                 .args(["launch", "--", "sleep", "60"])
                 .assert()
                 .success();
         }
 
         // Seventh should fail
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["launch", "--", "sleep", "60"])
             .assert()
             .failure()
@@ -170,8 +170,8 @@ mod launch_session_resolution {
     fn uses_tb_session_env_var() {
         let session = TestSession::new();
 
-        tb_cmd()
-            .env("TB_SESSION", &session.id)
+        session
+            .tb_command()
             .args(["launch", "--", "echo", "test"])
             .assert()
             .success();

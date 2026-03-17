@@ -7,34 +7,60 @@
 mod common;
 
 use assert_cmd::Command;
-use common::{cleanup_all_tb_sessions, cleanup_session, session_exists};
+use common::{cleanup_session, session_exists};
 use predicates::prelude::*;
 use std::process::Command as StdCommand;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 
-/// Run `tb start` inside a temporary tmux session and return the pane content.
-/// This provides `tb start` with a real TTY.
-///
-/// Note: Does NOT clean up tbtest-* sessions - caller is responsible for cleanup.
-/// The test runner session (tb-test-runner) is always cleaned up.
-/// Always sets TB_TEST_MODE=1 so sessions use "tbtest-" prefix.
-fn run_tb_start_in_tmux(args: &[&str]) -> (bool, String) {
-    run_tb_start_in_tmux_with_env(args, &[("TB_TEST_MODE", "1")])
+static RUNNER_COUNTER: AtomicU64 = AtomicU64::new(1);
+static PREFIX_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn unique_runner_session_name() -> String {
+    format!(
+        "tb-test-runner-{}-{}",
+        std::process::id(),
+        RUNNER_COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+fn unique_test_prefix() -> String {
+    format!(
+        "tbtest-start-{}-{}-",
+        std::process::id(),
+        PREFIX_COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+fn extract_session_id(content: &str) -> Option<String> {
+    let start = content.find("Started session '")?;
+    let rest = &content[start + 17..];
+    let end = rest.find('\'')?;
+    Some(rest[..end].to_string())
+}
+
+fn session_exists_with_prefix(prefix: &str, session_id: &str) -> bool {
+    StdCommand::new("tmux")
+        .args(["has-session", "-t", &format!("{}{}", prefix, session_id)])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn cleanup_session_with_prefix(prefix: &str, session_id: &str) {
+    let _ = StdCommand::new("tmux")
+        .args(["kill-session", "-t", &format!("{}{}", prefix, session_id)])
+        .output();
 }
 
 /// Run `tb start` inside a temporary tmux session with custom environment variables.
 fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, String) {
-    let test_session = "tb-test-runner";
-
-    // Clean up any previous test runner session
-    let _ = StdCommand::new("tmux")
-        .args(["kill-session", "-t", test_session])
-        .output();
+    let test_session = unique_runner_session_name();
 
     // Create a session to run tb start in
     let status = StdCommand::new("tmux")
-        .args(["new-session", "-d", "-s", test_session])
+        .args(["new-session", "-d", "-s", &test_session])
         .status()
         .expect("Failed to create test tmux session");
     assert!(status.success(), "Failed to create test tmux session");
@@ -66,7 +92,7 @@ fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, 
 
     // Send the command to the tmux session
     StdCommand::new("tmux")
-        .args(["send-keys", "-t", test_session, &tb_cmd, "Enter"])
+        .args(["send-keys", "-t", &test_session, &tb_cmd, "Enter"])
         .status()
         .expect("Failed to send keys to tmux");
 
@@ -75,7 +101,7 @@ fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, 
 
     // Capture the pane content (this gets the output before tb start execs into attach)
     let output = StdCommand::new("tmux")
-        .args(["capture-pane", "-t", test_session, "-p"])
+        .args(["capture-pane", "-t", &test_session, "-p"])
         .output()
         .expect("Failed to capture pane");
 
@@ -83,14 +109,14 @@ fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, 
 
     // Check if the tb-test-runner session still exists (it might have been replaced)
     let success = StdCommand::new("tmux")
-        .args(["has-session", "-t", test_session])
+        .args(["has-session", "-t", &test_session])
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
 
     // Clean up test runner session only
     let _ = StdCommand::new("tmux")
-        .args(["kill-session", "-t", test_session])
+        .args(["kill-session", "-t", &test_session])
         .output();
 
     (success, content)
@@ -101,32 +127,32 @@ mod start {
 
     #[test]
     fn creates_tmux_session_with_auto_id() {
-        cleanup_all_tb_sessions();
-
-        let (_, content) = run_tb_start_in_tmux(&[]);
+        let prefix = unique_test_prefix();
+        let (_, content) = run_tb_start_in_tmux_with_env(
+            &[],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
 
         // Extract session ID from "Started session 'xyz'"
-        if let Some(start) = content.find("Started session '") {
-            let rest = &content[start + 17..];
-            if let Some(end) = rest.find("'") {
-                let session_id = &rest[..end];
-                assert!(
-                    session_exists(session_id),
-                    "Session '{}' should exist after tb start",
-                    session_id
-                );
-                cleanup_session(session_id);
-                return;
-            }
+        if let Some(session_id) = extract_session_id(&content) {
+            assert!(
+                session_exists_with_prefix(&prefix, &session_id),
+                "Session '{}' should exist after tb start",
+                session_id
+            );
+            cleanup_session_with_prefix(&prefix, &session_id);
+            return;
         }
         panic!("Could not extract session ID from output: {}", content);
     }
 
     #[test]
     fn session_id_format_is_letter_plus_two_alphanumeric() {
-        cleanup_all_tb_sessions();
-
-        let (_, content) = run_tb_start_in_tmux(&[]);
+        let prefix = unique_test_prefix();
+        let (_, content) = run_tb_start_in_tmux_with_env(
+            &[],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
 
         // Should contain a session ID matching pattern [a-z][a-z0-9][a-z0-9]
         assert!(
@@ -137,14 +163,18 @@ mod start {
             content
         );
 
-        cleanup_all_tb_sessions();
+        if let Some(session_id) = extract_session_id(&content) {
+            cleanup_session_with_prefix(&prefix, &session_id);
+        }
     }
 
     #[test]
     fn output_includes_export_instruction() {
-        cleanup_all_tb_sessions();
-
-        let (_, content) = run_tb_start_in_tmux(&[]);
+        let prefix = unique_test_prefix();
+        let (_, content) = run_tb_start_in_tmux_with_env(
+            &[],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
 
         assert!(
             content.contains("export TB_SESSION="),
@@ -152,14 +182,18 @@ mod start {
             content
         );
 
-        cleanup_all_tb_sessions();
+        if let Some(session_id) = extract_session_id(&content) {
+            cleanup_session_with_prefix(&prefix, &session_id);
+        }
     }
 
     #[test]
     fn output_includes_tell_your_agent_message() {
-        cleanup_all_tb_sessions();
-
-        let (_, content) = run_tb_start_in_tmux(&[]);
+        let prefix = unique_test_prefix();
+        let (_, content) = run_tb_start_in_tmux_with_env(
+            &[],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
 
         assert!(
             content.contains("Tell your agent:"),
@@ -167,15 +201,20 @@ mod start {
             content
         );
 
-        cleanup_all_tb_sessions();
+        if let Some(session_id) = extract_session_id(&content) {
+            cleanup_session_with_prefix(&prefix, &session_id);
+        }
     }
 
     #[test]
     fn sequential_sessions_get_different_first_letters() {
-        cleanup_all_tb_sessions();
+        let prefix = unique_test_prefix();
 
         // Start first session
-        let (_, content1) = run_tb_start_in_tmux(&[]);
+        let (_, content1) = run_tb_start_in_tmux_with_env(
+            &[],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
 
         // Extract first letter
         let extract_first_letter = |s: &str| -> Option<char> {
@@ -192,7 +231,10 @@ mod start {
         );
 
         // Start second session
-        let (_, content2) = run_tb_start_in_tmux(&[]);
+        let (_, content2) = run_tb_start_in_tmux_with_env(
+            &[],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
         let letter2 = extract_first_letter(&content2);
         assert_eq!(
             letter2,
@@ -201,57 +243,84 @@ mod start {
             content2
         );
 
-        cleanup_all_tb_sessions();
+        if let Some(session_id) = extract_session_id(&content1) {
+            cleanup_session_with_prefix(&prefix, &session_id);
+        }
+        if let Some(session_id) = extract_session_id(&content2) {
+            cleanup_session_with_prefix(&prefix, &session_id);
+        }
     }
 
     #[test]
     fn explicit_session_id_is_used() {
-        cleanup_all_tb_sessions();
-
-        let (_, content) = run_tb_start_in_tmux(&["--session", "test123"]);
+        let prefix = unique_test_prefix();
+        let explicit_id = format!("test123-{}", PREFIX_COUNTER.fetch_add(1, Ordering::Relaxed));
+        let (_, content) = run_tb_start_in_tmux_with_env(
+            &["--session", &explicit_id],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
 
         assert!(
-            content.contains("test123"),
+            content.contains(&explicit_id),
             "Output should contain explicit session ID: {}",
             content
         );
-        assert!(session_exists("test123"), "Session 'test123' should exist");
+        assert!(
+            session_exists_with_prefix(&prefix, &explicit_id),
+            "Session '{}' should exist",
+            explicit_id
+        );
 
-        cleanup_session("test123");
+        cleanup_session_with_prefix(&prefix, &explicit_id);
     }
 
     #[test]
     fn rejects_duplicate_explicit_session_id() {
-        cleanup_all_tb_sessions();
+        let prefix = unique_test_prefix();
+        let explicit_id = format!("dupe-{}", PREFIX_COUNTER.fetch_add(1, Ordering::Relaxed));
 
         // Start first session with explicit ID
-        let (_, _) = run_tb_start_in_tmux(&["--session", "dupe"]);
-        assert!(session_exists("dupe"), "First session should exist");
+        let (_, _) = run_tb_start_in_tmux_with_env(
+            &["--session", &explicit_id],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
+        assert!(
+            session_exists_with_prefix(&prefix, &explicit_id),
+            "First session should exist"
+        );
 
         // Try to start second session with same ID - should fail
         // Run directly (no TTY) since we want to check the error
         let output = Command::cargo_bin("tb")
             .unwrap()
-            .args(["start", "--session", "dupe"])
+            .env("TB_TEST_MODE", "1")
+            .env("TB_SESSION_PREFIX", &prefix)
+            .args(["start", "--session", &explicit_id])
             .output()
             .unwrap();
 
+        assert!(
+            !output.status.success(),
+            "Non-interactive duplicate check should still fail"
+        );
+
         // It will fail due to no TTY, but if it got past the TTY check,
         // let's verify the duplicate check works by running in tmux
-        let (_, content) = run_tb_start_in_tmux(&["--session", "dupe"]);
+        let (_, content) = run_tb_start_in_tmux_with_env(
+            &["--session", &explicit_id],
+            &[("TB_TEST_MODE", "1"), ("TB_SESSION_PREFIX", &prefix)],
+        );
         assert!(
             content.contains("already exists"),
             "Should reject duplicate session ID: {}",
             content
         );
 
-        cleanup_session("dupe");
+        cleanup_session_with_prefix(&prefix, &explicit_id);
     }
 
     #[test]
     fn fails_when_not_interactive() {
-        cleanup_all_tb_sessions();
-
         // tb start is for humans only - it must be run interactively.
         // When run without a TTY (like by an agent), it should fail with
         // a helpful error message.
@@ -285,8 +354,6 @@ mod start {
 
     #[test]
     fn uses_tbtest_prefix_when_test_mode_set() {
-        cleanup_all_tb_sessions();
-
         // When TB_TEST_MODE is set, sessions should use "tbtest-" prefix
         // instead of "tb-" to avoid interfering with real sessions.
 
@@ -326,8 +393,6 @@ mod start {
 
     #[test]
     fn uses_tb_prefix_when_test_mode_not_set() {
-        cleanup_all_tb_sessions();
-
         // Without TB_TEST_MODE, sessions should use normal "tb-" prefix.
         // Explicitly pass empty env to avoid the default TB_TEST_MODE=1.
 
