@@ -54,6 +54,10 @@ enum Commands {
         #[arg(short, long)]
         session: Option<String>,
 
+        /// Print the exact command sent to tmux and exit
+        #[arg(long)]
+        dry_run: bool,
+
         /// No-output timeout in seconds
         #[arg(long, default_value = "10")]
         timeout: u64,
@@ -122,12 +126,13 @@ fn main() {
         Commands::Start { session } => cmd_start(session),
         Commands::Run {
             session,
+            dry_run,
             timeout,
             max_time,
             first,
             last,
             command,
-        } => cmd_run(session, timeout, max_time, first, last, command),
+        } => cmd_run(session, dry_run, timeout, max_time, first, last, command),
         Commands::Launch { session, command } => cmd_launch(session, command),
         Commands::Check {
             task,
@@ -256,12 +261,18 @@ fn generate_session_id() -> Result<String, String> {
 
 fn cmd_run(
     session: Option<String>,
+    dry_run: bool,
     timeout: u64,
     max_time: u64,
     first: usize,
     last: usize,
     command: Vec<String>,
 ) -> Result<(), String> {
+    if dry_run {
+        println!("{}", build_shell_command(&command, "dryrunid"));
+        return Ok(());
+    }
+
     let session_id = resolve_session(session)?;
 
     // Verify session exists
@@ -384,7 +395,7 @@ fn build_shell_command(command: &[String], marker_id: &str) -> String {
     // Build the inner script that will run inside sh -c
     // This script: echoes start marker, runs command, echoes end marker with exit status
     let inner_script = format!(
-        "echo '___START_{}___'; {}; echo \"___END_{}_$?___\"",
+        "echo ___START_{}___; {}; echo ___END_{}_$?___",
         marker_id, cmd_str, marker_id
     );
 
@@ -400,22 +411,46 @@ fn shell_command_text(command: &[String]) -> String {
         [script] => script.clone(),
         _ => command
             .iter()
-            .map(|arg| double_quote_escape(arg))
+            .map(|arg| quote_shell_arg(arg))
             .collect::<Vec<_>>()
             .join(" "),
     }
 }
 
-/// Escape a string using double quotes (for use inside sh -c)
-fn double_quote_escape(s: &str) -> String {
-    // In double quotes, we need to escape: $ ` \ " !
-    let escaped = s
-        .replace('\\', "\\\\")
+fn quote_shell_arg(s: &str) -> String {
+    if is_bare_shell_arg(s) {
+        return s.to_string();
+    }
+
+    if s.contains('\'') {
+        return format!("\"{}\"", escape_for_double_quotes(s));
+    }
+
+    if s.chars().any(is_single_quote_symbol) {
+        return format!("'{}'", s);
+    }
+
+    format!("\"{}\"", s)
+}
+
+fn is_bare_shell_arg(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || matches!(c, '-' | '_' | '.' | '/' | ',' | ':' | '@' | '=' | '+' | '%')
+        })
+}
+
+fn is_single_quote_symbol(c: char) -> bool {
+    matches!(c, '\\' | '$' | '`' | '"' | '!')
+}
+
+fn escape_for_double_quotes(s: &str) -> String {
+    s.replace('\\', "\\\\")
         .replace('$', "\\$")
         .replace('`', "\\`")
         .replace('"', "\\\"")
-        .replace('!', "\\!");
-    format!("\"{}\"", escaped)
+        .replace('!', "\\!")
 }
 
 /// Find exit code from end marker in output
