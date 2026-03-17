@@ -53,6 +53,21 @@ fn cleanup_session_with_prefix(prefix: &str, session_id: &str) {
         .output();
 }
 
+fn env_value<'a>(env: &'a [(&str, &str)], key: &str) -> Option<&'a str> {
+    env.iter()
+        .find_map(|(name, value)| (*name == key).then_some(*value))
+}
+
+fn expected_session_name(env: &[(&str, &str)], session_id: &str) -> String {
+    if let Some(prefix) = env_value(env, "TB_SESSION_PREFIX") {
+        format!("{}{}", prefix, session_id)
+    } else if env_value(env, "TB_TEST_MODE") == Some("1") {
+        format!("tbtest-{}", session_id)
+    } else {
+        format!("tb-{}", session_id)
+    }
+}
+
 struct RunnerSession {
     name: String,
 }
@@ -136,6 +151,11 @@ fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, 
     // Capture the pane content once the command has produced observable output.
     let content = runner.wait_for_start_output();
 
+    if let Some(session_id) = extract_session_id(&content) {
+        let session_name = expected_session_name(env, &session_id);
+        wait_for_session_exists(&session_name, Duration::from_secs(15));
+    }
+
     // Check if the tb-test-runner session still exists (it might have been replaced)
     let success = StdCommand::new("tmux")
         .args(["has-session", "-t", &runner.name])
@@ -159,10 +179,6 @@ mod start {
 
         // Extract session ID from "Started session 'xyz'"
         if let Some(session_id) = extract_session_id(&content) {
-            wait_for_session_exists(
-                &format!("{}{}", prefix, session_id),
-                Duration::from_secs(10),
-            );
             assert!(
                 session_exists_with_prefix(&prefix, &session_id),
                 "Session '{}' should exist after tb start",
@@ -293,10 +309,6 @@ mod start {
             "Output should contain explicit session ID: {}",
             content
         );
-        wait_for_session_exists(
-            &format!("{}{}", prefix, explicit_id),
-            Duration::from_secs(10),
-        );
         assert!(
             session_exists_with_prefix(&prefix, &explicit_id),
             "Session '{}' should exist",
@@ -410,7 +422,6 @@ mod start {
                     .map(|s| s.success())
                     .unwrap_or(false);
 
-                wait_for_session_exists(&format!("tbtest-{}", session_id), Duration::from_secs(10));
                 assert!(tbtest_exists, "Session should exist with tbtest- prefix");
                 assert!(!tb_exists, "Session should NOT exist with tb- prefix");
 
@@ -444,7 +455,6 @@ mod start {
                     .map(|s| s.success())
                     .unwrap_or(false);
 
-                wait_for_session_exists(&format!("tb-{}", session_id), Duration::from_secs(10));
                 assert!(tb_exists, "Session should exist with tb- prefix");
 
                 cleanup_session(session_id);
