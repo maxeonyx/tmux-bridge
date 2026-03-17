@@ -7,11 +7,10 @@
 mod common;
 
 use assert_cmd::Command;
-use common::{cleanup_session, session_exists};
+use common::{cleanup_session, session_exists, wait_for_pane_content, wait_for_session_exists};
 use predicates::prelude::*;
 use std::process::Command as StdCommand;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::thread::sleep;
 use std::time::Duration;
 
 static RUNNER_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -54,16 +53,57 @@ fn cleanup_session_with_prefix(prefix: &str, session_id: &str) {
         .output();
 }
 
+struct RunnerSession {
+    name: String,
+}
+
+impl RunnerSession {
+    fn new() -> Self {
+        let name = unique_runner_session_name();
+        let status = StdCommand::new("tmux")
+            .args(["new-session", "-d", "-s", &name])
+            .status()
+            .expect("Failed to create test tmux session");
+
+        assert!(status.success(), "Failed to create test tmux session");
+
+        Self { name }
+    }
+
+    fn send_keys(&self, command: &str) {
+        let status = StdCommand::new("tmux")
+            .args(["send-keys", "-t", &self.name, command, "Enter"])
+            .status()
+            .expect("Failed to send keys to tmux");
+
+        assert!(status.success(), "Failed to send keys to tmux");
+    }
+
+    fn wait_for_start_output(&self) -> String {
+        wait_for_pane_content(
+            &self.name,
+            &format!("tb start output to appear in runner session {}", self.name),
+            Duration::from_secs(15),
+            |content| {
+                content.contains("Started session '")
+                    || content.contains("already exists")
+                    || content.contains("interactive")
+            },
+        )
+    }
+}
+
+impl Drop for RunnerSession {
+    fn drop(&mut self) {
+        let _ = StdCommand::new("tmux")
+            .args(["kill-session", "-t", &self.name])
+            .output();
+    }
+}
+
 /// Run `tb start` inside a temporary tmux session with custom environment variables.
 fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, String) {
-    let test_session = unique_runner_session_name();
-
-    // Create a session to run tb start in
-    let status = StdCommand::new("tmux")
-        .args(["new-session", "-d", "-s", &test_session])
-        .status()
-        .expect("Failed to create test tmux session");
-    assert!(status.success(), "Failed to create test tmux session");
+    let runner = RunnerSession::new();
 
     // Build the tb command with optional env vars
     let tb_path = assert_cmd::cargo::cargo_bin("tb");
@@ -91,33 +131,17 @@ fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, 
     };
 
     // Send the command to the tmux session
-    StdCommand::new("tmux")
-        .args(["send-keys", "-t", &test_session, &tb_cmd, "Enter"])
-        .status()
-        .expect("Failed to send keys to tmux");
+    runner.send_keys(&tb_cmd);
 
-    // Wait for the command to execute and output to appear
-    sleep(Duration::from_millis(500));
-
-    // Capture the pane content (this gets the output before tb start execs into attach)
-    let output = StdCommand::new("tmux")
-        .args(["capture-pane", "-t", &test_session, "-p"])
-        .output()
-        .expect("Failed to capture pane");
-
-    let content = String::from_utf8_lossy(&output.stdout).to_string();
+    // Capture the pane content once the command has produced observable output.
+    let content = runner.wait_for_start_output();
 
     // Check if the tb-test-runner session still exists (it might have been replaced)
     let success = StdCommand::new("tmux")
-        .args(["has-session", "-t", &test_session])
+        .args(["has-session", "-t", &runner.name])
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
-
-    // Clean up test runner session only
-    let _ = StdCommand::new("tmux")
-        .args(["kill-session", "-t", &test_session])
-        .output();
 
     (success, content)
 }
@@ -135,6 +159,10 @@ mod start {
 
         // Extract session ID from "Started session 'xyz'"
         if let Some(session_id) = extract_session_id(&content) {
+            wait_for_session_exists(
+                &format!("{}{}", prefix, session_id),
+                Duration::from_secs(10),
+            );
             assert!(
                 session_exists_with_prefix(&prefix, &session_id),
                 "Session '{}' should exist after tb start",
@@ -265,6 +293,10 @@ mod start {
             "Output should contain explicit session ID: {}",
             content
         );
+        wait_for_session_exists(
+            &format!("{}{}", prefix, explicit_id),
+            Duration::from_secs(10),
+        );
         assert!(
             session_exists_with_prefix(&prefix, &explicit_id),
             "Session '{}' should exist",
@@ -378,6 +410,7 @@ mod start {
                     .map(|s| s.success())
                     .unwrap_or(false);
 
+                wait_for_session_exists(&format!("tbtest-{}", session_id), Duration::from_secs(10));
                 assert!(tbtest_exists, "Session should exist with tbtest- prefix");
                 assert!(!tb_exists, "Session should NOT exist with tb- prefix");
 
@@ -411,6 +444,7 @@ mod start {
                     .map(|s| s.success())
                     .unwrap_or(false);
 
+                wait_for_session_exists(&format!("tb-{}", session_id), Duration::from_secs(10));
                 assert!(tb_exists, "Session should exist with tb- prefix");
 
                 cleanup_session(session_id);
