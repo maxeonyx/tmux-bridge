@@ -45,10 +45,11 @@ cargo test --test done
 - [ ] Remove old fish scripts (`bin/`)
 - [ ] Remove old fish tests (`test/`)
 - [x] Fix flaky E2E tests — fixed by giving each test unique tmux session IDs and removing global cleanup
+- [ ] **Fix remaining test flakiness** — ~1 in 3 full-suite runs hit a timing failure (different test each time). Root cause: some tests use fixed sleeps (500ms–1s) instead of polling for readiness. Key spots: `tests/start.rs` (`run_tb_start_in_tmux_with_env` uses 500ms sleep), `tests/check.rs` (fixed sleeps before assertions). Replace with polling/retry patterns matching the existing `wait_for_*` helpers.
 
 ### Documentation
 
-- [ ] **Document single-arg script mode** — agents assume they need `tb run -- bash -c 'script; here'` instead of just `tb run -- 'script; here'`. The single-arg mode already works (it wraps in `sh -c` automatically), but AGENTS.md, the opencode skill, and VISION.md don't make this obvious enough. Add clear examples showing that a single quoted arg IS a script — no `bash -c` wrapper needed.
+- [x] **Document single-arg script mode** — added clear ✅/❌ examples to AGENTS.md, VISION.md, and the opencode skill showing that `tb run -- 'script; here'` is correct and `bash -c` wrappers are never needed.
 
 ### Future
 
