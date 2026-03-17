@@ -80,6 +80,8 @@ This triggers the CI workflow which:
 2. Builds binaries for linux-amd64, linux-amd64-musl, macos-amd64, macos-arm64
 3. Creates a GitHub release with the binaries
 
+**Always bump the version and tag a release** after merging behavioral changes (features, bug fixes, quoting changes). Don't leave unreleased work sitting on main.
+
 ### After Release
 
 Install locally:
