@@ -98,7 +98,7 @@ enum Commands {
     /// Check on a background task's status and output
     Check {
         /// The task ID (e.g., t1, t2)
-        task: String,
+        task: Option<String>,
 
         /// Use specific session (default: $TB_SESSION)
         #[arg(short, long)]
@@ -668,21 +668,26 @@ fn count_task_panes(tmux_name: &str) -> usize {
 }
 
 fn cmd_check(
-    task: String,
+    task: Option<String>,
     session: Option<String>,
     first: usize,
     last: usize,
 ) -> Result<(), String> {
     let tmux_name = resolve_existing_session_name(session)?;
 
-    // Find the pane with the matching task title
-    let pane_id = find_task_pane(&tmux_name, &task)?;
+    let (pane_id, task) = match task {
+        Some(task) => (find_task_pane(&tmux_name, &task)?, Some(task)),
+        None => (find_main_pane(&tmux_name)?, None),
+    };
 
     // Capture pane content
     let output = capture_pane_scrollback(&pane_id)?;
 
     if !output.status.success() {
-        return Err(format!("Task {} not found or pane inaccessible.", task));
+        return match task {
+            Some(task) => Err(format!("Task {} not found or pane inaccessible.", task)),
+            None => Err("Main pane not found or pane inaccessible.".to_string()),
+        };
     }
 
     let pane_content = String::from_utf8_lossy(&output.stdout);
@@ -690,7 +695,9 @@ fn cmd_check(
     // Print the pane content (with truncation)
     print_output(&pane_content, first, last);
 
-    report_task_check_status(&task, &pane_content);
+    if let Some(task) = task.as_deref() {
+        report_task_check_status(task, &pane_content);
+    }
 
     Ok(())
 }
@@ -814,4 +821,36 @@ fn find_task_pane(tmux_name: &str, task: &str) -> Result<String, String> {
         "Task {} not found.\n\nLaunch a task with: tb launch -- <command>",
         task
     ))
+}
+
+fn find_main_pane(tmux_name: &str) -> Result<String, String> {
+    let output = Command::new("tmux")
+        .args([
+            "list-panes",
+            "-t",
+            tmux_name,
+            "-F",
+            "#{pane_id}:#{@tb_task}",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to list panes: {}", e))?;
+
+    if !output.status.success() {
+        return Err("Failed to list panes.".to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for line in stdout.lines() {
+        if let Some((pane_id, task_id)) = line.split_once(':')
+            && task_id.is_empty()
+        {
+            return Ok(pane_id.to_string());
+        }
+    }
+
+    Err(
+        "Main pane not found.\n\nAsk the user to restart the tmux-bridge session with: tb start"
+            .to_string(),
+    )
 }
