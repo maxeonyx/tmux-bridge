@@ -48,4 +48,5 @@ cargo test --test done
 
 ### Future
 
+- [ ] **`tb check` for main session** — allow `tb check` without a task ID to capture the current visible output of the main session pane. Useful for agents to see what the human sees (e.g. after an interactive prompt, auth flow, or manual command).
 - [ ] **Auto-update** — `tb` should be able to update itself (e.g. `tb update` or automatic check on startup). Currently the release script installs locally, but remote machines with `tb` installed via curl still need manual updates.
