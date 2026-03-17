@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{TestSession, cleanup_all_tb_sessions, tb_cmd};
+use common::{cleanup_all_tb_sessions, tb_cmd, TestSession};
 use predicates::prelude::*;
 
 mod done_basic {
@@ -17,7 +17,7 @@ mod done_basic {
         let task_id = session.launch_task(&["sleep", "60"]);
 
         // Should have 2 panes now
-        assert_eq!(session.count_panes(), 2);
+        assert_eq!(session.wait_for_pane_count(2), 2);
 
         session
             .tb_command()
@@ -26,7 +26,7 @@ mod done_basic {
             .success();
 
         // Should be back to 1 pane
-        assert_eq!(session.count_panes(), 1);
+        assert_eq!(session.wait_for_pane_count(1), 1);
     }
 
     #[test]
@@ -51,22 +51,22 @@ mod done_basic {
         let t2 = session.launch_task(&["sleep", "60"]);
         let t3 = session.launch_task(&["sleep", "60"]);
 
-        assert_eq!(session.count_panes(), 4);
+        assert_eq!(session.wait_for_pane_count(4), 4);
 
         // Close middle one
         session.tb_command().args(["done", &t2]).assert().success();
 
-        assert_eq!(session.count_panes(), 3);
+        assert_eq!(session.wait_for_pane_count(3), 3);
 
         // Close first
         session.tb_command().args(["done", &t1]).assert().success();
 
-        assert_eq!(session.count_panes(), 2);
+        assert_eq!(session.wait_for_pane_count(2), 2);
 
         // Close last
         session.tb_command().args(["done", &t3]).assert().success();
 
-        assert_eq!(session.count_panes(), 1);
+        assert_eq!(session.wait_for_pane_count(1), 1);
     }
 }
 
@@ -155,7 +155,7 @@ mod done_allows_new_launches {
             tasks.push(session.launch_task(&["sleep", "60"]));
         }
 
-        assert_eq!(session.count_panes(), 7);
+        assert_eq!(session.wait_for_pane_count(7), 7);
 
         // Close one
         session
@@ -164,7 +164,7 @@ mod done_allows_new_launches {
             .assert()
             .success();
 
-        assert_eq!(session.count_panes(), 6);
+        assert_eq!(session.wait_for_pane_count(6), 6);
 
         // Should now be able to launch a new one
         session
@@ -173,6 +173,6 @@ mod done_allows_new_launches {
             .assert()
             .success();
 
-        assert_eq!(session.count_panes(), 7);
+        assert_eq!(session.wait_for_pane_count(7), 7);
     }
 }
