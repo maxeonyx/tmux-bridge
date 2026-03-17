@@ -47,7 +47,23 @@ cargo build --release
 
 # Run the test ratchet (CI uses this)
 python3 scripts/ratchet.py
+
+# Stress test for flakiness (run N times, report pass rate)
+./scripts/stress-test.sh 20
 ```
+
+### Test Architecture
+
+Tests are real E2E tests using real tmux sessions. The key principle: **never use fixed sleeps — always poll for observable state.** The test helpers in `tests/common/mod.rs` provide polling primitives:
+
+- `wait_until(description, timeout, poll_interval, probe)` — generic polling
+- `wait_for_pane_content(session, predicate, timeout)` — poll tmux pane capture
+- `wait_for_pane_count(session, expected, timeout)` — poll pane count
+- `wait_for_session_exists(prefix, id, timeout)` — poll session existence
+- `TestSession::wait_for_check_output(task_id, predicate)` — poll `tb check` output
+- `TestSession::wait_for_main_check_output(predicate)` — poll `tb check` (main pane)
+
+When adding new tests: use these helpers instead of `thread::sleep`. If a new wait pattern is needed, add it to `tests/common/mod.rs`.
 
 ### Test Ratchet
 
