@@ -224,6 +224,7 @@ Distribution:
 
 ## Future Possibilities
 
+- **`tb check` for main session**: Allow `tb check` without a task ID to capture the main pane's visible output, so the agent can see what the human sees
 - **Cleaner human display**: Hide markers, show `[agent] $ command` prefix
 - **Concurrent command queue**: Multiple `tb run` calls handled sequentially
 - **Session persistence**: Keep session alive briefly after last terminal exits
