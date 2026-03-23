@@ -23,6 +23,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce version bump on new main commits
+        run: |
+          tag="$(python - <<'PY'
+          import tomllib
+
+          with open("Cargo.toml", "rb") as cargo_toml:
+              version = tomllib.load(cargo_toml)["package"]["version"]
+
+          print(f"v{version}")
+          PY
+          )"
+
+          if git rev-parse --verify --quiet "${tag}^{commit}" >/dev/null; then
+            tag_commit="$(git rev-parse "${tag}^{commit}")"
+            head_commit="$(git rev-parse HEAD)"
+
+            if [ "$tag_commit" != "$head_commit" ]; then
+              echo "Cargo.toml version ${tag#v} already has git tag $tag at $tag_commit, but HEAD is $head_commit."
+              echo "Bump package.version before pushing new main commits so each release stays tied to one commit."
+              exit 1
+            fi
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -125,6 +151,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -133,19 +161,35 @@ jobs:
 
       - name: Read version from Cargo.toml
         id: version
-        run: echo "tag=v$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)" >> "$GITHUB_OUTPUT"
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
 
-      - name: Create or update release
+          with open("Cargo.toml", "rb") as cargo_toml:
+              version = tomllib.load(cargo_toml)["package"]["version"]
+
+          print(f"tag=v{version}")
+          PY
+
+      - name: Recreate release for this commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.version.outputs.tag }}"
+
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release edit "$tag" --title "$tag"
-          else
-            gh release create "$tag" --title "$tag" --generate-notes
+            gh release delete "$tag" --yes --cleanup-tag
           fi
-          gh release upload "$tag" artifacts/*/* --clobber
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git push origin ":refs/tags/$tag"
+          fi
+
+          gh release create "$tag" \
+            --title "$tag" \
+            --generate-notes \
+            --target "$GITHUB_SHA" \
+            artifacts/*/*
 
   pages:
     name: Pages
