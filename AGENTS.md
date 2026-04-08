@@ -126,7 +126,6 @@ tests/
   launch.rs       # E2E tests for tb launch
   check.rs        # E2E tests for tb check
   done.rs         # E2E tests for tb done
-bin/              # Old fish scripts (to be removed)
 ```
 
 ## Implementation Details

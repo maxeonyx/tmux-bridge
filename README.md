@@ -21,7 +21,7 @@ Requires: `tmux`
 
 ```bash
 # Download binary (Linux x86_64)
-curl -L https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-linux-x86_64 \
+curl -L https://github.com/maxeonyx/tmux-bridge/releases/latest/download/tb-x86_64-linux \
   -o ~/.local/bin/tb && chmod +x ~/.local/bin/tb
 
 # Or build from source
