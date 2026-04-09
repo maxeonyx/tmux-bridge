@@ -22,8 +22,8 @@ cargo test --test done
 
 ### Core Commands - COMPLETE
 
-- [x] **`tb start`** - Create tmux session with auto-generated ID (7 tests)
-- [x] **`tb run`** - Synchronous command execution (16 tests)
+- [x] **`tb start`** - Create tmux session with auto-generated ID (10 tests)
+- [x] **`tb run`** - Synchronous command execution (40 tests)
 - [x] **`tb launch`** - Background task in split pane (9 tests)
 - [x] **`tb check`** - Check background task status + main pane capture (11 tests)
 - [x] **`tb done`** - Close background task pane (8 tests)
