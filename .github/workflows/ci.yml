@@ -142,6 +142,7 @@ jobs:
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
+          retention-days: 1
 
   release:
     name: Release
