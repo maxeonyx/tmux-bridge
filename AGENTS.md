@@ -134,7 +134,7 @@ tests/
 Sessions are named `tb-{id}` where id is `{letter}{random}{random}` (e.g., `tb-a7x`).
 
 ### Session resolution
-Commands use `--session ID` flag or `$TB_SESSION` environment variable.
+Commands use `--target TARGET` / `-t`. Simple names first try a literal tmux session, then fall back to `tb-{name}` for `tb start` compatibility. Targets containing tmux syntax (`:`, `.`, `%`) pass through unchanged.
 
 ### Command markers
 Format: `___START_$id___` and `___END_${id}_$exit_status___` where `$id` is random.
@@ -157,19 +157,19 @@ The human sees every command typed into their terminal. Quoting must be **correc
 3. Two-phase kill: SIGINT, wait 3s, SIGQUIT
 
 ### Background task layout
-- Tasks 1-3: horizontal splits at top (10 lines each)
-- Tasks 4-6: two columns of horizontal splits
-- Maximum 6 concurrent background tasks
+- `tb launch` splits the targeted pane directly
+- Task accounting uses `@tb_task`-tagged panes only
+- Maximum 6 concurrent background tasks per target scope
 
 ## Error Messages
 
 Error messages should be self-documenting and guide the agent to the next action:
 
 ```
-Error: No session specified.
+Error: No target specified.
 
-Set TB_SESSION environment variable, or use --session ID.
-Ask the user which tmux-bridge session to use.
+Use --target TARGET.
+Ask the user which tmux target to use.
 ```
 
 ## Code Style

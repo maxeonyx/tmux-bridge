@@ -222,7 +222,16 @@ impl TestSession {
         let tmux_name = format!("{}{}", prefix, id);
 
         let status = StdCommand::new("tmux")
-            .args(["new-session", "-d", "-s", &tmux_name])
+            .args([
+                "new-session",
+                "-d",
+                "-x",
+                "200",
+                "-y",
+                "60",
+                "-s",
+                &tmux_name,
+            ])
             .status()
             .expect("Failed to create tmux session");
 
@@ -240,6 +249,30 @@ impl TestSession {
 
     pub fn session_prefix(&self) -> &str {
         &self.prefix
+    }
+
+    pub fn target(&self) -> &str {
+        &self.id
+    }
+
+    pub fn pane_target(&self) -> String {
+        let output = StdCommand::new("tmux")
+            .args([
+                "display-message",
+                "-p",
+                "-t",
+                &self.tmux_name(),
+                "#{session_name}:#{window_index}.#{pane_index}",
+            ])
+            .output()
+            .expect("Failed to inspect tmux pane target");
+
+        assert!(
+            output.status.success(),
+            "Failed to inspect tmux pane target"
+        );
+
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
     pub fn wait_for_check_command_output<F>(
@@ -265,7 +298,7 @@ impl TestSession {
             || {
                 let output = self
                     .tb_command()
-                    .args(["check", task_id])
+                    .args(["check", "--target", self.target(), task_id])
                     .args(extra_args)
                     .output()
                     .expect("Failed to run tb check while polling");
@@ -296,13 +329,20 @@ impl TestSession {
             .unwrap()
             .env("TB_TEST_MODE", "1")
             .env("TB_SESSION_PREFIX", &self.prefix)
-            .env("TB_SESSION", &self.id)
-            .args(["launch", "--"])
+            .args(["launch", "--target", &self.id, "--"])
             .args(command)
             .output()
             .expect("Failed to run tb launch");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "tb launch failed\nstdout:\n{}\nstderr:\n{}",
+            stdout,
+            stderr
+        );
 
         extract_task_id(&stdout).expect(&format!("Could not extract task ID from: {}", stdout))
     }
@@ -311,8 +351,7 @@ impl TestSession {
     pub fn tb_command(&self) -> Command {
         let mut cmd = Command::cargo_bin("tb").unwrap();
         cmd.env("TB_TEST_MODE", "1")
-            .env("TB_SESSION_PREFIX", &self.prefix)
-            .env("TB_SESSION", &self.id);
+            .env("TB_SESSION_PREFIX", &self.prefix);
         cmd
     }
 
@@ -341,8 +380,8 @@ impl TestSession {
         command
             .env("TB_TEST_MODE", "1")
             .env("TB_SESSION_PREFIX", &self.prefix)
-            .env("TB_SESSION", &self.id)
-            .arg("check");
+            .arg("check")
+            .args(["--target", &self.id]);
 
         if let Some(task_id) = task_id {
             command.arg(task_id);
