@@ -1,12 +1,15 @@
 ---
 name: tmux-bridge
-description: If a task requires interactive-only steps such as authentication, or background commands
+description: If a task requires interactive-only steps such as authentication, or an interactive terminal workflow that should stay attachable; for non-interactive background jobs, use the systemd-user-jobs skill instead
 ---
 
 # tmux-bridge
 
-Use `tb` for interactive commands (sudo, auth) or background tasks.
-If "No session specified", ask user to run `tb start`.
+Use `tb` for interactive commands (sudo, auth) or interactive terminal workflows that you may want to reattach to later. If "No target specified", ask user which tmux session/pane to use, or ask them to run `tb start`.
+
+`tmux-bridge` is mostly for local use, not the default answer for remote durable jobs.
+
+For ad hoc non-interactive background processes that should survive logout, especially on a remote Linux machine, prefer `systemd-run --user` with linger enabled. See the `systemd-user-jobs` skill.
 
 ## Install
 
@@ -15,26 +18,68 @@ curl -Lo ~/.local/bin/tb https://tmux-bridge.maxeonyx.com/releases/tb-x86_64-lin
 chmod +x ~/.local/bin/tb
 ```
 
+## Targeting
+
+All commands (except `tb start`) use `--target` (`-t`) to specify the tmux target:
+
+```bash
+# tb-started session (resolves a7x → tb-a7x)
+tb run -t a7x -- ls -la
+
+# Any existing tmux session by name
+tb run -t my-session -- ls -la
+
+# Specific pane in a session
+tb run -t my-session:0.1 -- make build
+
+# tmux pane ID
+tb run -t %42 -- make build
+```
+
+Simple names try a literal tmux session first, then fall back to `tb-{name}`. Targets containing tmux syntax (`:`, `.`, `%`) pass through unchanged.
+
 ## Synchronous
 
 ```bash
-tb run -s <id> -- sudo apt install foo
+# Simple command
+tb run -t <target> -- sudo apt install foo
+
+# Shell script — single arg is treated as shell code automatically
+tb run -t <target> --timeout 60 -- 'echo "Starting..."; sudo systemctl restart nginx; echo "Done"'
 ```
 
-## Shell scripts
+**Never wrap in `bash -c`** — `tb` already wraps single args in `sh -c` for you:
 
-Pass a multi-statement shell script as a single argument:
+- ✅ `tb run -t <target> -- 'cmd1; cmd2'`
+- ❌ `tb run -t <target> -- bash -c 'cmd1; cmd2'`
 
-```bash
-tb run -s <id> --timeout 60 -- 'echo "Starting..."; sudo systemctl restart nginx; echo "Done"'
-```
+Multiple arguments after `--` are treated as argv (each quoted individually).
 
-When a single argument is passed after `--`, it's treated as shell code (not wrapped in quotes). Multiple arguments are each quoted individually.
+## Authentication prompts
+
+**Ask immediately** when a command triggers an authentication step (AWS SSO, sudo password, SSH key passphrase, browser OAuth, etc.). Don't silently wait or poll — use the question tool to ask the user to complete it. Wasted minutes waiting in silence are wasted context.
+
+If a `tb run` or `tb launch` command gets stuck (no output, timeout) because of a sudo prompt or other authentication step, **do not retry**. The user needs to complete the authentication interactively. Ask the user to authenticate, then retry.
+
+## Pagers
+
+Always use `--no-pager` with `systemctl`, `journalctl`, and similar commands. The tmux pane is an interactive terminal, so pagers (like `less`) will wait for you to press `q` — which you can't do.
 
 ## Background tasks
 
+Use this for terminal-centric jobs where an interactive pane is still the right abstraction.
+
 ```bash
-tb launch -s <id> -- cargo build   # Start background task
-tb check -s <id> t1                 # Check status
-tb done -s <id> t1                  # Close pane
+tb launch -t <target> -- cargo build   # Start background task
+tb check -t <target> t1                 # Check status
+tb done -t <target> t1                  # Close pane
+```
+
+## Checking a pane
+
+`tb check -t <target>` without a task ID captures the targeted pane's visible output — useful for seeing what the human sees after an interactive prompt, auth flow, or manual command.
+
+```bash
+tb check -t <target>              # Capture targeted pane
+tb check -t <target> t1           # Check background task status
 ```
