@@ -6,6 +6,7 @@ mod common;
 
 use common::{TestSession, tb_cmd};
 use predicates::prelude::*;
+use std::process::Command as StdCommand;
 
 mod check_output {
     use super::*;
@@ -21,7 +22,7 @@ mod check_output {
 
         session
             .tb_command()
-            .args(["check", &task_id])
+            .args(["check", "--target", session.target(), &task_id])
             .assert()
             .success()
             .stdout(predicate::str::contains("task output here"));
@@ -37,7 +38,7 @@ mod check_output {
 
         session
             .tb_command()
-            .args(["check", &task_id])
+            .args(["check", "--target", session.target(), &task_id])
             .assert()
             .success()
             // Should indicate task is still running (no "complete" message)
@@ -58,7 +59,7 @@ mod check_output {
 
         session
             .tb_command()
-            .args(["check", &task_id])
+            .args(["check", "--target", session.target(), &task_id])
             .assert()
             .success()
             .stdout(predicate::str::contains("complete").or(predicate::str::contains("finished")))
@@ -79,7 +80,7 @@ mod check_output {
 
         session
             .tb_command()
-            .args(["check", &task_id])
+            .args(["check", "--target", session.target(), &task_id])
             .assert()
             .success()
             .stdout(predicate::str::contains("42").or(predicate::str::contains("exit")));
@@ -137,6 +138,66 @@ mod check_main_output {
         assert!(!stdout.contains("finished with exit code"));
         assert!(!stdout.contains("Close pane with: tb done"));
     }
+
+    #[test]
+    fn captures_exact_target_pane_without_task_id() {
+        let session = TestSession::new();
+
+        let split = StdCommand::new("tmux")
+            .args([
+                "split-window",
+                "-t",
+                &session.tmux_name(),
+                "-d",
+                "-P",
+                "-F",
+                "#{window_index}.#{pane_index}:#{pane_id}",
+            ])
+            .output()
+            .expect("Failed to split tmux pane");
+        assert!(split.status.success(), "Failed to split tmux pane");
+
+        let split_stdout = String::from_utf8_lossy(&split.stdout).trim().to_string();
+        let (window_and_pane, pane_id) = split_stdout
+            .split_once(':')
+            .expect("tmux split output should include pane target and id");
+        let pane_target = format!("{}:{}", session.tmux_name(), window_and_pane);
+
+        session.send_main_pane_command("echo original pane marker");
+
+        let send_split = StdCommand::new("tmux")
+            .args([
+                "send-keys",
+                "-t",
+                &pane_id,
+                "echo split pane marker",
+                "Enter",
+            ])
+            .status()
+            .expect("Failed to send keys to split pane");
+        assert!(send_split.success(), "Failed to send keys to split pane");
+
+        common::wait_for_pane_content(
+            &pane_target,
+            "split pane content",
+            std::time::Duration::from_secs(10),
+            |content| content.contains("split pane marker"),
+        );
+
+        common::wait_for_pane_content(
+            &session.tmux_name(),
+            "original pane content",
+            std::time::Duration::from_secs(10),
+            |content| content.contains("original pane marker"),
+        );
+
+        tb_cmd()
+            .args(["check", "-t", &pane_target])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("split pane marker"))
+            .stdout(predicate::str::contains("original pane marker").not());
+    }
 }
 
 mod check_truncation {
@@ -178,7 +239,15 @@ mod check_main_truncation {
 
         session
             .tb_command()
-            .args(["check", "--first", "5", "--last", "5"])
+            .args([
+                "check",
+                "--target",
+                session.target(),
+                "--first",
+                "5",
+                "--last",
+                "5",
+            ])
             .assert()
             .success()
             .stdout(predicate::str::contains("truncated"));
@@ -194,18 +263,18 @@ mod check_errors {
 
         session
             .tb_command()
-            .args(["check", "t999"])
+            .args(["check", "--target", session.target(), "t999"])
             .assert()
             .failure()
             .stderr(predicate::str::contains("not found").or(predicate::str::contains("No task")));
     }
 
     #[test]
-    fn fails_without_session() {
+    fn fails_without_target() {
         tb_cmd()
             .args(["check", "t1"])
             .assert()
             .failure()
-            .stderr(predicate::str::contains("No session specified"));
+            .stderr(predicate::str::contains("No target specified"));
     }
 }

@@ -213,7 +213,7 @@ mod start {
     }
 
     #[test]
-    fn output_includes_export_instruction() {
+    fn output_includes_target_instruction() {
         let prefix = unique_test_prefix();
         let (_, content) = run_tb_start_in_tmux_with_env(
             &[],
@@ -221,8 +221,8 @@ mod start {
         );
 
         assert!(
-            content.contains("export TB_SESSION="),
-            "Output should contain export instruction: {}",
+            content.contains("tb run --target"),
+            "Output should contain target instruction: {}",
             content
         );
 

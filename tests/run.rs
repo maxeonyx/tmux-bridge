@@ -12,46 +12,50 @@ mod run_session_resolution {
     use super::*;
 
     #[test]
-    fn fails_without_session() {
+    fn fails_without_target() {
         tb_cmd()
             .args(["run", "--", "echo", "hello"])
             .assert()
             .failure()
-            .stderr(predicate::str::contains("No session specified"))
-            .stderr(predicate::str::contains("TB_SESSION"))
-            .stderr(predicate::str::contains("--session"));
+            .stderr(predicate::str::contains("No target specified"))
+            .stderr(predicate::str::contains("--target"));
     }
 
     #[test]
-    fn uses_tb_session_env_var() {
+    fn uses_target_flag_with_tb_session_id_fallback() {
         let session = TestSession::new();
 
         session
             .tb_command()
-            .args(["run", "--", "echo", "hello"])
+            .args(["run", "--target", session.target(), "--", "echo", "hello"])
             .assert()
             .success()
             .stdout(predicate::str::contains("hello"));
     }
 
     #[test]
-    fn session_flag_overrides_env_var() {
+    fn target_flag_works_with_prefixed_tmux_session_name() {
         let session = TestSession::new();
 
-        // Set env var to nonexistent session, but use --session with real one
         session
             .tb_command()
-            .env("TB_SESSION", "nonexistent")
-            .args(["run", "--session", &session.id, "--", "echo", "override"])
+            .args([
+                "run",
+                "--target",
+                &session.tmux_name(),
+                "--",
+                "echo",
+                "prefix works",
+            ])
             .assert()
             .success()
-            .stdout(predicate::str::contains("override"));
+            .stdout(predicate::str::contains("prefix works"));
     }
 
     #[test]
-    fn fails_with_nonexistent_session() {
+    fn fails_with_nonexistent_target() {
         tb_cmd()
-            .args(["run", "--session", "nonexistent99", "--", "echo", "hello"])
+            .args(["run", "--target", "nonexistent99", "--", "echo", "hello"])
             .assert()
             .failure()
             .stderr(predicate::str::contains("not found"))
@@ -59,32 +63,45 @@ mod run_session_resolution {
     }
 
     #[test]
-    fn accepts_short_session_flag() {
+    fn accepts_short_target_flag() {
         let session = TestSession::new();
 
         session
             .tb_command()
-            .args(["run", "-s", &session.id, "--", "echo", "short flag"])
+            .args(["run", "-t", session.target(), "--", "echo", "short flag"])
             .assert()
             .success()
             .stdout(predicate::str::contains("short flag"));
     }
 
     #[test]
-    fn accepts_session_id_with_prefix() {
+    fn uses_raw_tmux_session_name_target() {
         let session = TestSession::new();
 
-        // User might provide the full tmux session name including prefix
-        // e.g., TB_SESSION=tbtest-test123 instead of just test123
-        let full_name = session.tmux_name();
-
-        session
-            .tb_command()
-            .env("TB_SESSION", &full_name)
-            .args(["run", "--", "echo", "prefix works"])
+        tb_cmd()
+            .args([
+                "run",
+                "--target",
+                &session.tmux_name(),
+                "--",
+                "echo",
+                "raw target",
+            ])
             .assert()
             .success()
-            .stdout(predicate::str::contains("prefix works"));
+            .stdout(predicate::str::contains("raw target"));
+    }
+
+    #[test]
+    fn accepts_pane_syntax_target() {
+        let session = TestSession::new();
+        let pane_target = session.pane_target();
+
+        tb_cmd()
+            .args(["run", "-t", &pane_target, "--", "echo", "pane target"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("pane target"));
     }
 }
 
@@ -97,7 +114,14 @@ mod run_command_execution {
 
         session
             .tb_command()
-            .args(["run", "--", "echo", "hello world"])
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "echo",
+                "hello world",
+            ])
             .assert()
             .success()
             .stdout(predicate::str::contains("hello world"));
@@ -109,7 +133,14 @@ mod run_command_execution {
 
         session
             .tb_command()
-            .args(["run", "--", "printf", "line1\\nline2\\nline3\\n"])
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "printf",
+                "line1\\nline2\\nline3\\n",
+            ])
             .assert()
             .success()
             .stdout(predicate::str::contains("line1"))
@@ -123,7 +154,7 @@ mod run_command_execution {
 
         session
             .tb_command()
-            .args(["run", "--", "true"])
+            .args(["run", "--target", session.target(), "--", "true"])
             .assert()
             .success();
     }
@@ -134,7 +165,7 @@ mod run_command_execution {
 
         session
             .tb_command()
-            .args(["run", "--", "false"])
+            .args(["run", "--target", session.target(), "--", "false"])
             .assert()
             .failure()
             .code(1);
@@ -146,7 +177,15 @@ mod run_command_execution {
 
         session
             .tb_command()
-            .args(["run", "--", "sh", "-c", "exit 42"])
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "sh",
+                "-c",
+                "exit 42",
+            ])
             .assert()
             .failure()
             .code(42);
@@ -158,7 +197,14 @@ mod run_command_execution {
 
         session
             .tb_command()
-            .args(["run", "--", "echo", "hello; world && test | pipe"])
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "echo",
+                "hello; world && test | pipe",
+            ])
             .assert()
             .success()
             .stdout(predicate::str::contains("hello; world && test | pipe"));
@@ -170,7 +216,14 @@ mod run_command_execution {
 
         session
             .tb_command()
-            .args(["run", "--", "echo", "it's a \"quoted\" string"])
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "echo",
+                "it's a \"quoted\" string",
+            ])
             .assert()
             .success()
             .stdout(predicate::str::contains("it's a \"quoted\" string"));
@@ -182,7 +235,15 @@ mod run_command_execution {
 
         session
             .tb_command()
-            .args(["run", "--timeout", "5", "--", "echo hello; echo world"])
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--timeout",
+                "5",
+                "--",
+                "echo hello; echo world",
+            ])
             .assert()
             .success()
             .stdout(predicate::str::contains("hello"))
@@ -199,6 +260,8 @@ mod run_single_arg_shell_quoting {
         session
             .tb_command()
             .arg("run")
+            .arg("--target")
+            .arg(session.target())
             .arg("--timeout")
             .arg("5")
             .arg("--")
@@ -382,7 +445,16 @@ mod run_timeouts {
         // sleep produces no output, should timeout
         session
             .tb_command()
-            .args(["run", "--timeout", "2", "--", "sleep", "30"])
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--timeout",
+                "2",
+                "--",
+                "sleep",
+                "30",
+            ])
             .timeout(Duration::from_secs(10))
             .assert()
             .failure()
@@ -399,6 +471,8 @@ mod run_timeouts {
             .tb_command()
             .args([
                 "run",
+                "--target",
+                session.target(),
                 "--timeout",
                 "60", // long no-output timeout
                 "--max-time",
@@ -421,7 +495,16 @@ mod run_timeouts {
 
         session
             .tb_command()
-            .args(["run", "--timeout", "2", "--", "echo", "quick"])
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--timeout",
+                "2",
+                "--",
+                "echo",
+                "quick",
+            ])
             .assert()
             .success()
             .stdout(predicate::str::contains("quick"));
@@ -439,7 +522,17 @@ mod run_output_truncation {
         session
             .tb_command()
             .args([
-                "run", "--first", "5", "--last", "5", "--", "seq", "1", "200",
+                "run",
+                "--target",
+                session.target(),
+                "--first",
+                "5",
+                "--last",
+                "5",
+                "--",
+                "seq",
+                "1",
+                "200",
             ])
             .assert()
             .success()
@@ -457,7 +550,17 @@ mod run_output_truncation {
         session
             .tb_command()
             .args([
-                "run", "--first", "50", "--last", "50", "--", "seq", "1", "10",
+                "run",
+                "--target",
+                session.target(),
+                "--first",
+                "50",
+                "--last",
+                "50",
+                "--",
+                "seq",
+                "1",
+                "10",
             ])
             .assert()
             .success()
