@@ -51,10 +51,10 @@ The human's terminal must feel completely normal. No special modes, no restricti
 
 Commands only reveal the next logical step - no overwhelming the agent with options:
 
-- `tb start` → "Tell your agent: `export TB_SESSION=a7x`"
-- `tb run` (no session) → "Set TB_SESSION or use --session"
-- `tb launch` → "Check status with: `tb check t1`"
-- `tb check` (finished) → "Close pane with: `tb done t1`"
+- `tb start` → "Tell your agent: `tb run --target a7x -- <command>`"
+- `tb run` (no target) → "Use --target"
+- `tb launch` → "Check status with: `tb check --target TARGET t1`"
+- `tb check` (finished) → "Close pane with: `tb done --target TARGET t1`"
 
 ### Fail informatively
 
@@ -95,13 +95,13 @@ Format: `{sequential-letter}{random1}{random2}` (e.g., `a7x`, `b3m`, `c9k`)
 
 Sessions are named `tb-{id}` in tmux (e.g., `tb-a7x`).
 
-### Task pane layout
+### Task panes
 
-Background tasks run in split panes at the top of the window:
+Background tasks split the targeted pane directly.
 
-- 1-3 tasks: horizontal splits (10 lines each)
-- 4-6 tasks: two columns of horizontal splits
-- Maximum 6 concurrent background tasks
+- `tb launch -t my-session:1.2 -- ...` splits that pane
+- panes tagged with `@tb_task` are the only panes counted as tasks
+- Maximum 6 concurrent background tasks per target scope
 
 ### Why tmux?
 
@@ -148,7 +148,7 @@ $ tb start
 Started session 'a7x'
 
 Tell your agent:
-  export TB_SESSION=a7x
+  tb run --target a7x -- <command>
 ```
 
 Options:
@@ -160,18 +160,18 @@ Agent runs synchronous commands.
 
 ```
 # Simple command (each arg passed separately)
-$ tb run -- ls -la
-$ tb run --timeout 60 -- make build
+$ tb run --target a7x -- ls -la
+$ tb run --target my-session:1.2 --timeout 60 -- make build
 
 # Shell script (single arg = treated as shell code)
-$ tb run -- 'echo "Starting..."; make build && echo "Done"'
-$ tb run -- 'grep -r "TODO" src/ | wc -l'
+$ tb run --target a7x -- 'echo "Starting..."; make build && echo "Done"'
+$ tb run --target %42 -- 'grep -r "TODO" src/ | wc -l'
 ```
 
 A single argument after `--` is treated as a shell script — `tb` wraps it in `sh -c` automatically. **Do not** wrap in `bash -c` yourself; that adds an unnecessary quoting layer.
 
 Options:
-- `--session ID` - Use specific session (default: `$TB_SESSION`)
+- `--target TARGET` / `-t` - Tmux target to use
 - `--timeout N` - No-output timeout in seconds (default: 10)
 - `--max-time N` - Overall timeout in seconds (default: 120)
 - `--first N` - Lines from start to show (default: 50)
@@ -182,13 +182,13 @@ Options:
 Agent starts a background task.
 
 ```
-$ tb launch -- npm run build
+$ tb launch --target my-session:1.2 -- npm run build
 Task t1 started.
-Check status with: tb check t1
+Check status with: tb check --target my-session:1.2 t1
 ```
 
 Options:
-- `--session ID` - Use specific session (default: `$TB_SESSION`)
+- `--target TARGET` / `-t` - Tmux target to use
 
 ### tb check
 
@@ -196,20 +196,20 @@ Agent checks on a background task, or captures what the human sees in the main p
 
 ```
 # Check a background task
-$ tb check t1
+$ tb check --target my-session:1.2 t1
 [output from the task pane]
 
 # If task has finished:
 Task t1 complete (exit 0).
-Close pane with: tb done t1
+Close pane with: tb done --target my-session:1.2 t1
 
-# Capture the main pane (what the human sees)
-$ tb check
-[visible output from the main session pane]
+# Capture the targeted pane
+$ tb check --target my-session:1.2
+[visible output from the targeted pane]
 ```
 
 Options:
-- `--session ID` - Use specific session (default: `$TB_SESSION`)
+- `--target TARGET` / `-t` - Tmux target to use
 - `--first N` - Lines from start to show (default: 50)
 - `--last N` - Lines from end to show (default: 50)
 
@@ -218,7 +218,7 @@ Options:
 Agent closes a background task's pane.
 
 ```
-$ tb done t1
+$ tb done --target my-session:1.2 t1
 Closed task t1.
 ```
 

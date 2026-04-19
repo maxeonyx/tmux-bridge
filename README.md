@@ -36,21 +36,19 @@ cargo install --git https://github.com/maxeonyx/tmux-bridge
 $ tb start
 Started session 'a7x'
 
-Tell your agent: export TB_SESSION=a7x
+Tell your agent: tb run --target a7x -- <command>
 ```
 
 ### Agent: Run commands
 
 ```bash
-export TB_SESSION=a7x
-
 # Synchronous command
-tb run -- cargo build
+tb run --target a7x -- cargo build
 
 # Background task
-tb launch -- npm run dev
-tb check t1
-tb done t1
+tb launch --target a7x -- npm run dev
+tb check --target a7x t1
+tb done --target a7x t1
 ```
 
 ## Commands

@@ -51,6 +51,10 @@ cargo test --test done
 
 - [x] **Document single-arg script mode** — added clear ✅/❌ examples to AGENTS.md, VISION.md, and the opencode skill showing that `tb run -- 'script; here'` is correct and `bash -c` wrappers are never needed.
 
+### Complete
+
+- [x] **Arbitrary session/pane targeting** — replaced `--session` flag and `TB_SESSION` env var with single `--target` (`-t`) flag that accepts any tmux target syntax. Simple names try a literal tmux session first, then `tb-{id}` fallback. `tb start` is now optional convenience. Task accounting uses `@tb_task`-tagged panes only.
+
 ### Future
 
 - [ ] **Auto-update** — `tb` should be able to update itself (e.g. `tb update` or automatic check on startup). Currently the release script installs locally, but remote machines with `tb` installed via curl still need manual updates.

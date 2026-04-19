@@ -55,9 +55,9 @@ enum Commands {
 
     /// Run a command synchronously and wait for output (agent uses this)
     Run {
-        /// Use specific session (default: $TB_SESSION)
+        /// Tmux target (session, session:window.pane, or %pane)
         #[arg(short, long)]
-        session: Option<String>,
+        target: Option<String>,
 
         /// Print the exact command sent to tmux and exit
         #[arg(long)]
@@ -86,9 +86,9 @@ enum Commands {
 
     /// Launch a background task in a split pane (agent uses this)
     Launch {
-        /// Use specific session (default: $TB_SESSION)
+        /// Tmux target (session, session:window.pane, or %pane)
         #[arg(short, long)]
-        session: Option<String>,
+        target: Option<String>,
 
         /// The command to run
         #[arg(last = true, required = true)]
@@ -100,9 +100,9 @@ enum Commands {
         /// Optional task ID (e.g., t1); omit to capture the main pane
         task: Option<String>,
 
-        /// Use specific session (default: $TB_SESSION)
+        /// Tmux target (session, session:window.pane, or %pane)
         #[arg(short, long)]
-        session: Option<String>,
+        target: Option<String>,
 
         /// Lines to show from start of output
         #[arg(long, default_value = "50")]
@@ -118,9 +118,9 @@ enum Commands {
         /// The task ID (e.g., t1, t2)
         task: String,
 
-        /// Use specific session (default: $TB_SESSION)
+        /// Tmux target (session, session:window.pane, or %pane)
         #[arg(short, long)]
-        session: Option<String>,
+        target: Option<String>,
     },
 }
 
@@ -130,22 +130,22 @@ fn main() {
     let result = match cli.command {
         Commands::Start { session } => cmd_start(session),
         Commands::Run {
-            session,
+            target,
             dry_run,
             timeout,
             max_time,
             first,
             last,
             command,
-        } => cmd_run(session, dry_run, timeout, max_time, first, last, command),
-        Commands::Launch { session, command } => cmd_launch(session, command),
+        } => cmd_run(target, dry_run, timeout, max_time, first, last, command),
+        Commands::Launch { target, command } => cmd_launch(target, command),
         Commands::Check {
             task,
-            session,
+            target,
             first,
             last,
-        } => cmd_check(task, session, first, last),
-        Commands::Done { task, session } => cmd_done(task, session),
+        } => cmd_check(task, target, first, last),
+        Commands::Done { task, target } => cmd_done(task, target),
     };
 
     if let Err(e) = result {
@@ -187,7 +187,10 @@ fn cmd_start(session: Option<String>) -> Result<(), String> {
 
     println!("Started session '{}'", session_id);
     println!();
-    println!("Tell your agent: export TB_SESSION={}", session_id);
+    println!(
+        "Tell your agent: tb run --target {} -- <command>",
+        session_id
+    );
     println!();
 
     use std::io::Write;
@@ -265,7 +268,7 @@ fn generate_session_id() -> Result<String, String> {
 }
 
 fn cmd_run(
-    session: Option<String>,
+    target: Option<String>,
     dry_run: bool,
     timeout: u64,
     max_time: u64,
@@ -278,7 +281,7 @@ fn cmd_run(
         return Ok(());
     }
 
-    let tmux_name = resolve_existing_session_name(session)?;
+    let tmux_target = resolve_tmux_target(target)?;
 
     // Generate unique marker ID
     let marker_id: String = {
@@ -300,7 +303,7 @@ fn cmd_run(
 
     // Send the command to tmux
     let status = Command::new("tmux")
-        .args(["send-keys", "-t", &tmux_name, &shell_command, "Enter"])
+        .args(["send-keys", "-t", &tmux_target, &shell_command, "Enter"])
         .status()
         .map_err(|e| format!("Failed to send command to tmux: {}", e))?;
 
@@ -319,13 +322,13 @@ fn cmd_run(
 
         // Check max-time timeout
         if start_time.elapsed().as_secs() >= max_time {
-            kill_running_command(&tmux_name);
+            kill_running_command(&tmux_target);
             eprintln!("Timeout: max-time of {} seconds exceeded.", max_time);
             std::process::exit(124);
         }
 
         // Capture pane content
-        let output = capture_pane_scrollback(&tmux_name)?;
+        let output = capture_pane_scrollback(&tmux_target)?;
 
         let pane_content = String::from_utf8_lossy(&output.stdout);
 
@@ -351,39 +354,81 @@ fn cmd_run(
 
         // Check no-output timeout
         if last_output_time.elapsed().as_secs() >= timeout {
-            kill_running_command(&tmux_name);
+            kill_running_command(&tmux_target);
             eprintln!("Timeout: no output for {} seconds.", timeout);
             std::process::exit(124);
         }
     }
 }
 
-/// Resolve session ID from --session flag or TB_SESSION env var
-fn resolve_session(session: Option<String>) -> Result<String, String> {
-    if let Some(s) = session {
-        return Ok(s);
-    }
-
-    if let Ok(s) = std::env::var("TB_SESSION")
-        && !s.is_empty()
-    {
-        return Ok(s);
-    }
-
-    Err("No session specified.\n\nSet TB_SESSION environment variable, or use --session ID.\nAsk the user which tmux-bridge session to use.".to_string())
+fn is_special_tmux_target(target: &str) -> bool {
+    target.starts_with('%') || target.contains(':') || target.contains('.')
 }
 
-fn resolve_existing_session_name(session: Option<String>) -> Result<String, String> {
-    let session_id = resolve_session(session)?;
+fn tmux_session_exists_literal(target: &str) -> bool {
+    let output = Command::new("tmux")
+        .args(["list-sessions", "-F", "#{session_name}"])
+        .output();
 
-    if !session_exists(&session_id) {
+    match output {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|session_name| session_name == target),
+        _ => false,
+    }
+}
+
+fn tmux_pane_target_exists(target: &str) -> bool {
+    Command::new("tmux")
+        .args(["display-message", "-p", "-t", target, "#{pane_id}"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn resolve_tmux_target(target: Option<String>) -> Result<String, String> {
+    let target = target.ok_or_else(|| {
+        "No target specified.\n\nUse --target TARGET.\nAsk the user which tmux target to use."
+            .to_string()
+    })?;
+
+    if is_special_tmux_target(&target) {
+        if tmux_pane_target_exists(&target) {
+            return Ok(target);
+        }
+
         return Err(format!(
-            "Session '{}' not found.\n\nStart a new session with: tb start",
-            session_id
+            "Target '{}' not found.\n\nAsk the user which tmux target to use, or start a new bridge session with: tb start",
+            target
         ));
     }
 
-    Ok(tmux_session_name(&session_id))
+    if tmux_session_exists_literal(&target) {
+        return Ok(target);
+    }
+
+    let fallback_target = tmux_session_name(&target);
+    if tmux_session_exists_literal(&fallback_target) {
+        return Ok(fallback_target);
+    }
+
+    Err(format!(
+        "Target '{}' not found.\n\nAsk the user which tmux target to use, or start a new bridge session with: tb start",
+        target
+    ))
+}
+
+fn split_target(tmux_target: &str) -> Result<String, String> {
+    let output = Command::new("tmux")
+        .args(["display-message", "-p", "-t", tmux_target, "#{pane_id}"])
+        .output()
+        .map_err(|e| format!("Failed to inspect tmux target: {}", e))?;
+
+    if !output.status.success() {
+        return Err("Failed to inspect tmux target.".to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn capture_pane_scrollback(pane_target: &str) -> Result<std::process::Output, String> {
@@ -538,25 +583,29 @@ fn print_output(output: &str, first: usize, last: usize) {
 }
 
 /// Kill running command in pane with SIGINT, then SIGQUIT
-fn kill_running_command(tmux_name: &str) {
+fn kill_running_command(tmux_target: &str) {
     // Send Ctrl+C (SIGINT)
     let _ = Command::new("tmux")
-        .args(["send-keys", "-t", tmux_name, "C-c"])
+        .args(["send-keys", "-t", tmux_target, "C-c"])
         .status();
 
     std::thread::sleep(std::time::Duration::from_secs(3));
 
     // Send Ctrl+\ (SIGQUIT) as backup
     let _ = Command::new("tmux")
-        .args(["send-keys", "-t", tmux_name, "C-\\"])
+        .args(["send-keys", "-t", tmux_target, "C-\\"])
         .status();
 }
 
-fn cmd_launch(session: Option<String>, command: Vec<String>) -> Result<(), String> {
-    let tmux_name = resolve_existing_session_name(session)?;
+fn cmd_launch(target: Option<String>, command: Vec<String>) -> Result<(), String> {
+    let tmux_target = resolve_tmux_target(target)?;
 
     // Count existing task panes to get next task ID
-    let task_count = count_task_panes(&tmux_name);
+    let task_panes = list_panes_with_task_ids(&tmux_target)?;
+    let task_count = task_panes
+        .iter()
+        .filter(|(_, task_id)| !task_id.is_empty())
+        .count();
 
     if task_count >= 6 {
         return Err(
@@ -565,67 +614,31 @@ fn cmd_launch(session: Option<String>, command: Vec<String>) -> Result<(), Strin
         );
     }
 
-    let task_id = format!("t{}", task_count + 1);
+    let task_id = next_task_id(&task_panes)?;
 
-    // Create split pane for the task
-    // First 3 tasks: horizontal split at top (above main pane)
-    // Tasks 4-6: split existing task panes vertically
-    let pane_target = if task_count < 3 {
-        // Get the main pane ID (the last pane, which is always the original main pane)
-        let pane_count_total = task_count + 1;
-        let main_pane_index = pane_count_total - 1; // Last pane is main
+    let split_target = split_target(&tmux_target)?;
 
-        // Split main pane horizontally, creating new pane above
-        // -b = before (above), -l 5 = 5 lines (small to fit more panes), -d = don't switch focus
-        let status = Command::new("tmux")
-            .args([
-                "split-window",
-                "-t",
-                &format!("{}:0.{}", tmux_name, main_pane_index),
-                "-b", // Before (above)
-                "-l",
-                "5",  // 5 lines
-                "-d", // Don't focus
-                "-P", // Print pane info
-                "-F",
-                "#{pane_id}",
-            ])
-            .output()
-            .map_err(|e| format!("Failed to create task pane: {}", e))?;
+    let status = Command::new("tmux")
+        .args([
+            "split-window",
+            "-t",
+            &split_target,
+            "-d",
+            "-l",
+            "5",
+            "-P",
+            "-F",
+            "#{pane_id}",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to create task pane: {}", e))?;
 
-        if !status.status.success() {
-            let stderr = String::from_utf8_lossy(&status.stderr);
-            return Err(format!("Failed to create task pane: {}", stderr));
-        }
+    if !status.status.success() {
+        let stderr = String::from_utf8_lossy(&status.stderr);
+        return Err(format!("Failed to create task pane: {}", stderr));
+    }
 
-        String::from_utf8_lossy(&status.stdout).trim().to_string()
-    } else {
-        // Split an existing task pane vertically
-        // Task panes are at indices 0, 1, 2 for t1, t2, t3
-        // t4 splits t1 (index 0), t5 splits t2 (index 1), t6 splits t3 (index 2)
-        let split_pane_index = task_count - 3;
-
-        let status = Command::new("tmux")
-            .args([
-                "split-window",
-                "-t",
-                &format!("{}:0.{}", tmux_name, split_pane_index),
-                "-h", // Horizontal split (left-right)
-                "-d", // Don't focus
-                "-P", // Print pane info
-                "-F",
-                "#{pane_id}",
-            ])
-            .output()
-            .map_err(|e| format!("Failed to create task pane: {}", e))?;
-
-        if !status.status.success() {
-            let stderr = String::from_utf8_lossy(&status.stderr);
-            return Err(format!("Failed to create task pane: {}", stderr));
-        }
-
-        String::from_utf8_lossy(&status.stdout).trim().to_string()
-    };
+    let pane_target = String::from_utf8_lossy(&status.stdout).trim().to_string();
 
     // Build the command to run in the task pane
     let cmd_str = shell_command_text(&command);
@@ -647,37 +660,40 @@ fn cmd_launch(session: Option<String>, command: Vec<String>) -> Result<(), Strin
         .status();
 
     println!("Task {} started.", task_id);
-    println!("Check status with: tb check {}", task_id);
+    println!(
+        "Check status with: tb check --target {} {}",
+        tmux_target, task_id
+    );
 
     Ok(())
 }
 
-/// Count number of task panes (total panes minus 1 for main pane)
-fn count_task_panes(tmux_name: &str) -> usize {
-    let output = Command::new("tmux")
-        .args(["list-panes", "-t", tmux_name, "-F", "#{pane_id}"])
-        .output();
+fn next_task_id(task_panes: &[(String, String)]) -> Result<String, String> {
+    let used_ids: HashSet<usize> = task_panes
+        .iter()
+        .filter_map(|(_, task_id)| task_id.strip_prefix('t')?.parse::<usize>().ok())
+        .collect();
 
-    match output {
-        Ok(o) if o.status.success() => {
-            let count = String::from_utf8_lossy(&o.stdout).lines().count();
-            count.saturating_sub(1) // Subtract 1 for main pane
-        }
-        _ => 0,
-    }
+    (1..=6)
+        .find(|candidate| !used_ids.contains(candidate))
+        .map(|candidate| format!("t{}", candidate))
+        .ok_or_else(|| {
+            "Error: too many background tasks (max 6).\n\nClose a task with: tb done <task>"
+                .to_string()
+        })
 }
 
 fn cmd_check(
     task: Option<String>,
-    session: Option<String>,
+    target: Option<String>,
     first: usize,
     last: usize,
 ) -> Result<(), String> {
-    let tmux_name = resolve_existing_session_name(session)?;
+    let tmux_target = resolve_tmux_target(target)?;
 
     let (pane_id, task) = match task {
-        Some(task) => (find_task_pane(&tmux_name, &task)?, Some(task)),
-        None => (find_main_pane(&tmux_name)?, None),
+        Some(task) => (find_task_pane(&tmux_target, &task)?, Some(task)),
+        None => (tmux_target.clone(), None),
     };
 
     // Capture pane content
@@ -696,13 +712,13 @@ fn cmd_check(
     print_output(&pane_content, first, last);
 
     if let Some(task) = task.as_deref() {
-        report_task_check_status(task, &pane_content);
+        report_task_check_status(task, &tmux_target, &pane_content);
     }
 
     Ok(())
 }
 
-fn report_task_check_status(task: &str, pane_content: &str) {
+fn report_task_check_status(task: &str, tmux_target: &str, pane_content: &str) {
     if is_process_running(pane_content) {
         return;
     }
@@ -714,7 +730,7 @@ fn report_task_check_status(task: &str, pane_content: &str) {
         Some(code) => println!("Task {} finished with exit code {}.", task, code),
         None => println!("Task {} appears complete.", task),
     }
-    println!("Close pane with: tb done {}", task);
+    println!("Close pane with: tb done --target {} {}", tmux_target, task);
 }
 
 /// Check if a process is still running in a pane
@@ -768,11 +784,11 @@ fn find_task_exit_code(pane_content: &str) -> Option<i32> {
     None
 }
 
-fn cmd_done(task: String, session: Option<String>) -> Result<(), String> {
-    let tmux_name = resolve_existing_session_name(session)?;
+fn cmd_done(task: String, target: Option<String>) -> Result<(), String> {
+    let tmux_target = resolve_tmux_target(target)?;
 
     // Find the pane with the matching task title
-    let pane_id = find_task_pane(&tmux_name, &task)?;
+    let pane_id = find_task_pane(&tmux_target, &task)?;
 
     // Kill the pane
     let status = Command::new("tmux")
@@ -790,15 +806,10 @@ fn cmd_done(task: String, session: Option<String>) -> Result<(), String> {
 }
 
 /// Find pane ID for a task by its @tb_task option
-fn list_panes_with_task_ids(tmux_name: &str) -> Result<Vec<(String, String)>, String> {
+fn list_panes_with_task_ids(tmux_target: &str) -> Result<Vec<(String, String)>, String> {
+    let scope = pane_list_scope(tmux_target)?;
     let output = Command::new("tmux")
-        .args([
-            "list-panes",
-            "-t",
-            tmux_name,
-            "-F",
-            "#{pane_id}:#{@tb_task}",
-        ])
+        .args(["list-panes", "-t", &scope, "-F", "#{pane_id}\t#{@tb_task}"])
         .output()
         .map_err(|e| format!("Failed to list panes: {}", e))?;
 
@@ -809,34 +820,40 @@ fn list_panes_with_task_ids(tmux_name: &str) -> Result<Vec<(String, String)>, St
     Ok(String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(|line| {
-            line.split_once(':')
+            line.split_once('\t')
                 .map(|(pane_id, task_id)| (pane_id.to_string(), task_id.to_string()))
         })
         .collect())
 }
 
-fn find_task_pane(tmux_name: &str, task: &str) -> Result<String, String> {
-    for (pane_id, task_id) in list_panes_with_task_ids(tmux_name)? {
+fn pane_list_scope(tmux_target: &str) -> Result<String, String> {
+    let output = Command::new("tmux")
+        .args([
+            "display-message",
+            "-p",
+            "-t",
+            tmux_target,
+            "#{session_name}:#{window_index}",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to inspect tmux target: {}", e))?;
+
+    if !output.status.success() {
+        return Err("Failed to inspect tmux target.".to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn find_task_pane(tmux_target: &str, task: &str) -> Result<String, String> {
+    for (pane_id, task_id) in list_panes_with_task_ids(tmux_target)? {
         if task_id == task {
             return Ok(pane_id);
         }
     }
 
     Err(format!(
-        "Task {} not found.\n\nLaunch a task with: tb launch -- <command>",
+        "Task {} not found.\n\nLaunch a task with: tb launch --target TARGET -- <command>",
         task
     ))
-}
-
-fn find_main_pane(tmux_name: &str) -> Result<String, String> {
-    for (pane_id, task_id) in list_panes_with_task_ids(tmux_name)? {
-        if task_id.is_empty() {
-            return Ok(pane_id);
-        }
-    }
-
-    Err(
-        "Main pane not found.\n\nAsk the user to restart the tmux-bridge session with: tb start"
-            .to_string(),
-    )
 }
