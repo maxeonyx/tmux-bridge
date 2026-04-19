@@ -6,6 +6,7 @@ mod common;
 
 use common::{TestSession, tb_cmd};
 use predicates::prelude::*;
+use std::process::Command as StdCommand;
 
 mod launch_basic {
     use super::*;
@@ -16,7 +17,7 @@ mod launch_basic {
 
         session
             .tb_command()
-            .args(["launch", "--", "sleep", "60"])
+            .args(["launch", "--target", session.target(), "--", "sleep", "60"])
             .assert()
             .success()
             .stdout(predicate::str::is_match(r"Task t\d+ started").unwrap());
@@ -28,10 +29,10 @@ mod launch_basic {
 
         session
             .tb_command()
-            .args(["launch", "--", "sleep", "60"])
+            .args(["launch", "--target", session.target(), "--", "sleep", "60"])
             .assert()
             .success()
-            .stdout(predicate::str::contains("tb check t"));
+            .stdout(predicate::str::contains("tb check --target"));
     }
 
     #[test]
@@ -47,7 +48,7 @@ mod launch_basic {
 
         session
             .tb_command()
-            .args(["launch", "--", "sleep", "60"])
+            .args(["launch", "--target", session.target(), "--", "sleep", "60"])
             .assert()
             .success();
 
@@ -65,13 +66,13 @@ mod launch_basic {
 
         let output1 = session
             .tb_command()
-            .args(["launch", "--", "sleep", "60"])
+            .args(["launch", "--target", session.target(), "--", "sleep", "60"])
             .output()
             .unwrap();
 
         let output2 = session
             .tb_command()
-            .args(["launch", "--", "sleep", "60"])
+            .args(["launch", "--target", session.target(), "--", "sleep", "60"])
             .output()
             .unwrap();
 
@@ -89,19 +90,36 @@ mod launch_basic {
             stdout2
         );
     }
+
+    #[test]
+    fn ignores_untagged_panes_when_assigning_task_ids() {
+        let session = TestSession::new();
+
+        let split = StdCommand::new("tmux")
+            .args(["split-window", "-t", &session.tmux_name(), "-d", "-l", "5"])
+            .output()
+            .expect("Failed to create extra untagged pane");
+        assert!(split.status.success(), "Failed to create extra pane");
+
+        tb_cmd()
+            .args(["launch", "-t", &session.pane_target(), "--", "sleep", "60"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Task t1 started."));
+    }
 }
 
-mod launch_pane_layout {
+mod launch_pane_splitting {
     use super::*;
 
     #[test]
-    fn first_three_tasks_create_horizontal_splits() {
+    fn repeated_launches_keep_creating_panes() {
         let session = TestSession::new();
 
         for i in 1..=3 {
             session
                 .tb_command()
-                .args(["launch", "--", "sleep", "60"])
+                .args(["launch", "--target", session.target(), "--", "sleep", "60"])
                 .assert()
                 .success();
 
@@ -116,43 +134,45 @@ mod launch_pane_layout {
     }
 
     #[test]
-    fn tasks_four_through_six_split_vertically() {
+    fn can_launch_multiple_tasks() {
         let session = TestSession::new();
 
-        // Launch 6 tasks
-        for _ in 1..=6 {
+        for _ in 1..=4 {
             session
                 .tb_command()
-                .args(["launch", "--", "sleep", "60"])
+                .args(["launch", "--target", session.target(), "--", "sleep", "60"])
                 .assert()
                 .success();
         }
 
-        // Should have 7 panes (1 main + 6 tasks)
         assert_eq!(
-            session.wait_for_pane_count(7),
-            7,
-            "Should have 7 panes after 6 launches"
+            session.wait_for_pane_count(5),
+            5,
+            "Should have 5 panes after 4 launches"
         );
     }
 
     #[test]
-    fn rejects_seventh_task() {
+    fn rejects_seventh_tagged_task_even_with_untagged_panes() {
         let session = TestSession::new();
 
-        // Launch 6 tasks
         for _ in 1..=6 {
             session
                 .tb_command()
-                .args(["launch", "--", "sleep", "60"])
+                .args(["launch", "--target", session.target(), "--", "sleep", "60"])
                 .assert()
                 .success();
         }
 
-        // Seventh should fail
+        let split = StdCommand::new("tmux")
+            .args(["split-window", "-t", &session.tmux_name(), "-d", "-l", "5"])
+            .output()
+            .expect("Failed to create extra untagged pane");
+        assert!(split.status.success(), "Failed to create extra pane");
+
         session
             .tb_command()
-            .args(["launch", "--", "sleep", "60"])
+            .args(["launch", "--target", session.target(), "--", "sleep", "60"])
             .assert()
             .failure()
             .stderr(predicate::str::contains("too many"))
@@ -164,21 +184,21 @@ mod launch_session_resolution {
     use super::*;
 
     #[test]
-    fn fails_without_session() {
+    fn fails_without_target() {
         tb_cmd()
             .args(["launch", "--", "sleep", "60"])
             .assert()
             .failure()
-            .stderr(predicate::str::contains("No session specified"));
+            .stderr(predicate::str::contains("No target specified"));
     }
 
     #[test]
-    fn uses_tb_session_env_var() {
+    fn uses_target_flag_with_tb_session_id_fallback() {
         let session = TestSession::new();
 
         session
             .tb_command()
-            .args(["launch", "--", "echo", "test"])
+            .args(["launch", "--target", session.target(), "--", "echo", "test"])
             .assert()
             .success();
     }

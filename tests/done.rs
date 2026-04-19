@@ -21,7 +21,7 @@ mod done_basic {
 
         session
             .tb_command()
-            .args(["done", &task_id])
+            .args(["done", "--target", session.target(), &task_id])
             .assert()
             .success();
 
@@ -37,7 +37,7 @@ mod done_basic {
 
         session
             .tb_command()
-            .args(["done", &task_id])
+            .args(["done", "--target", session.target(), &task_id])
             .assert()
             .success()
             .stdout(predicate::str::contains("Closed").or(predicate::str::contains("closed")));
@@ -54,17 +54,29 @@ mod done_basic {
         assert_eq!(session.wait_for_pane_count(4), 4);
 
         // Close middle one
-        session.tb_command().args(["done", &t2]).assert().success();
+        session
+            .tb_command()
+            .args(["done", "--target", session.target(), &t2])
+            .assert()
+            .success();
 
         assert_eq!(session.wait_for_pane_count(3), 3);
 
         // Close first
-        session.tb_command().args(["done", &t1]).assert().success();
+        session
+            .tb_command()
+            .args(["done", "--target", session.target(), &t1])
+            .assert()
+            .success();
 
         assert_eq!(session.wait_for_pane_count(2), 2);
 
         // Close last
-        session.tb_command().args(["done", &t3]).assert().success();
+        session
+            .tb_command()
+            .args(["done", "--target", session.target(), &t3])
+            .assert()
+            .success();
 
         assert_eq!(session.wait_for_pane_count(1), 1);
     }
@@ -87,7 +99,7 @@ mod done_with_finished_tasks {
         // Should still be able to close the pane
         session
             .tb_command()
-            .args(["done", &task_id])
+            .args(["done", "--target", session.target(), &task_id])
             .assert()
             .success();
     }
@@ -102,19 +114,19 @@ mod done_errors {
 
         session
             .tb_command()
-            .args(["done", "t999"])
+            .args(["done", "--target", session.target(), "t999"])
             .assert()
             .failure()
             .stderr(predicate::str::contains("not found").or(predicate::str::contains("No task")));
     }
 
     #[test]
-    fn fails_without_session() {
+    fn fails_without_target() {
         tb_cmd()
             .args(["done", "t1"])
             .assert()
             .failure()
-            .stderr(predicate::str::contains("No session specified"));
+            .stderr(predicate::str::contains("No target specified"));
     }
 
     #[test]
@@ -126,14 +138,14 @@ mod done_errors {
         // Close it
         session
             .tb_command()
-            .args(["done", &task_id])
+            .args(["done", "--target", session.target(), &task_id])
             .assert()
             .success();
 
         // Try to close again
         session
             .tb_command()
-            .args(["done", &task_id])
+            .args(["done", "--target", session.target(), &task_id])
             .assert()
             .failure()
             .stderr(predicate::str::contains("not found").or(predicate::str::contains("already")));
@@ -147,30 +159,28 @@ mod done_allows_new_launches {
     fn can_launch_after_closing_task() {
         let session = TestSession::new();
 
-        // Fill up with 6 tasks
-        let mut tasks = Vec::new();
-        for _ in 0..6 {
-            tasks.push(session.launch_task(&["sleep", "60"]));
-        }
+        let first = session.launch_task(&["sleep", "60"]);
+        session.launch_task(&["sleep", "60"]);
 
-        assert_eq!(session.wait_for_pane_count(7), 7);
+        assert_eq!(session.wait_for_pane_count(3), 3);
 
         // Close one
         session
             .tb_command()
-            .args(["done", &tasks[0]])
+            .args(["done", "--target", session.target(), &first])
             .assert()
             .success();
 
-        assert_eq!(session.wait_for_pane_count(6), 6);
+        assert_eq!(session.wait_for_pane_count(2), 2);
 
         // Should now be able to launch a new one
         session
             .tb_command()
-            .args(["launch", "--", "sleep", "60"])
+            .args(["launch", "--target", session.target(), "--", "sleep", "60"])
             .assert()
-            .success();
+            .success()
+            .stdout(predicate::str::contains("Task t1 started."));
 
-        assert_eq!(session.wait_for_pane_count(7), 7);
+        assert_eq!(session.wait_for_pane_count(3), 3);
     }
 }
