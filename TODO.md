@@ -55,6 +55,24 @@ cargo test --test done
 
 - [x] **Arbitrary session/pane targeting** — replaced `--session` flag and `TB_SESSION` env var with single `--target` (`-t`) flag that accepts any tmux target syntax. Simple names try a literal tmux session first, then `tb-{id}` fallback. `tb start` is now optional convenience. Task accounting uses `@tb_task`-tagged panes only.
 
+### In Progress — New Commands
+
+- [ ] **`tb info`** — broad smart environment probe. Stage 4 only implements the minimum shell assessment that `tb run` needs right now: plain-text confidence-aware reporting for fish / bash / `sh` / unknown, with unknown falling back to the existing `sh -c` path. The broader probe remains deferred:
+  - richer environment details beyond shell assessment
+  - stronger REPL / non-shell detection
+  - tmux copy/scroll mode handling
+  - broader shell families and non-Unix shells
+  - any structured output format
+
+- [ ] **`tb send`** — raw keystroke injection into target pane. No wrapping, no markers, no output capture. For `exit`, `cd`, shell builtins, control codes.
+  - Does NOT send Enter by default — sends exactly what you give it, nothing more
+  - `--key` flag for named keys: `tb send -t foo --key C-d`, `tb send -t foo --key Enter`
+  - Text mode for literal text: `tb send -t foo -- "exit"` (agent adds `--key Enter` explicitly if needed)
+  - Most common use case is single keystrokes (`--key C-d`, `--key C-c`)
+  - Uses same `--target` resolution as other commands
+
+- [ ] **`tb launch` / `tb done` safety for non-tb sessions** — if the target session was NOT started with `tb start` (doesn't have the `tb-` prefix), refuse by default. These commands create/destroy panes on the user's session — they might not want that. Require `--force` or similar override flag. Error message should explain why.
+
 ### Future
 
 - [ ] **Auto-update** — `tb` should be able to update itself (e.g. `tb update` or automatic check on startup). Currently the release script installs locally, but remote machines with `tb` installed via curl still need manual updates.

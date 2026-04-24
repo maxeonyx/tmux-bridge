@@ -84,6 +84,13 @@ enum Commands {
         command: Vec<String>,
     },
 
+    /// Inspect the target pane and report shell confidence
+    Info {
+        /// Tmux target (session, session:window.pane, or %pane)
+        #[arg(short, long)]
+        target: Option<String>,
+    },
+
     /// Launch a background task in a split pane (agent uses this)
     Launch {
         /// Tmux target (session, session:window.pane, or %pane)
@@ -138,6 +145,7 @@ fn main() {
             last,
             command,
         } => cmd_run(target, dry_run, timeout, max_time, first, last, command),
+        Commands::Info { target } => cmd_info(target),
         Commands::Launch { target, command } => cmd_launch(target, command),
         Commands::Check {
             task,
@@ -151,6 +159,58 @@ fn main() {
     if let Err(e) = result {
         eprintln!("{}", e);
         std::process::exit(1);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShellKind {
+    Fish,
+    Bash,
+    Sh,
+    Unknown,
+}
+
+impl ShellKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Fish => "fish",
+            Self::Bash => "bash",
+            Self::Sh => "sh",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+struct ShellAssessment {
+    kind: ShellKind,
+    observed_command: String,
+}
+
+impl ShellAssessment {
+    fn confident(kind: ShellKind, observed_command: String) -> Self {
+        Self {
+            kind,
+            observed_command,
+        }
+    }
+
+    fn unknown(observed_command: String) -> Self {
+        Self {
+            kind: ShellKind::Unknown,
+            observed_command,
+        }
+    }
+
+    fn describe(&self) -> String {
+        match self.kind {
+            ShellKind::Fish | ShellKind::Bash | ShellKind::Sh => {
+                format!("Shell assessment: {} (confident)", self.kind.label())
+            }
+            ShellKind::Unknown => format!(
+                "Shell assessment: unknown (direct shell-specific execution unsafe). Foreground command: {}",
+                self.observed_command
+            ),
+        }
     }
 }
 
@@ -276,8 +336,16 @@ fn cmd_run(
     last: usize,
     command: Vec<String>,
 ) -> Result<(), String> {
+    let shell_kind = match target.clone() {
+        Some(target) => {
+            let tmux_target = resolve_tmux_target(Some(target))?;
+            observed_shell_kind(&tmux_target)?
+        }
+        None => ShellKind::Unknown,
+    };
+
     if dry_run {
-        println!("{}", build_shell_command(&command, "dryrunid"));
+        println!("{}", build_shell_command(&command, "dryrunid", shell_kind));
         return Ok(());
     }
 
@@ -298,8 +366,7 @@ fn cmd_run(
     let end_marker_prefix = format!("___END_{}_", marker_id);
 
     // Build the shell command to inject
-    // We wrap the command with markers and capture exit status
-    let shell_command = build_shell_command(&command, &marker_id);
+    let shell_command = build_shell_command(&command, &marker_id, shell_kind);
 
     // Send the command to tmux
     let status = Command::new("tmux")
@@ -359,6 +426,13 @@ fn cmd_run(
             std::process::exit(124);
         }
     }
+}
+
+fn cmd_info(target: Option<String>) -> Result<(), String> {
+    let tmux_target = resolve_tmux_target(target)?;
+    let assessment = probe_shell_assessment(&tmux_target)?;
+    println!("{}", assessment.describe());
+    Ok(())
 }
 
 fn is_special_tmux_target(target: &str) -> bool {
@@ -445,16 +519,125 @@ fn capture_pane_scrollback(pane_target: &str) -> Result<std::process::Output, St
         .map_err(|e| format!("Failed to capture pane: {}", e))
 }
 
+fn pane_current_command(tmux_target: &str) -> Result<String, String> {
+    let output = Command::new("tmux")
+        .args([
+            "display-message",
+            "-p",
+            "-t",
+            tmux_target,
+            "#{pane_current_command}",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to inspect tmux target: {}", e))?;
+
+    if !output.status.success() {
+        return Err("Failed to inspect tmux target.".to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn observed_shell_kind(tmux_target: &str) -> Result<ShellKind, String> {
+    let current_command = pane_current_command(tmux_target)?;
+    Ok(shell_kind_from_command(&current_command))
+}
+
+fn shell_kind_from_command(command: &str) -> ShellKind {
+    match command {
+        "fish" => ShellKind::Fish,
+        "bash" => ShellKind::Bash,
+        "sh" => ShellKind::Sh,
+        _ => ShellKind::Unknown,
+    }
+}
+
+fn probe_shell_assessment(tmux_target: &str) -> Result<ShellAssessment, String> {
+    let observed_command = pane_current_command(tmux_target)?;
+    let kind = shell_kind_from_command(&observed_command);
+
+    if kind == ShellKind::Unknown {
+        return Ok(ShellAssessment::unknown(observed_command));
+    }
+
+    let probe_marker = format!("___TB_INFO_PROBE_{}___", random_marker_id());
+    let status = Command::new("tmux")
+        .args([
+            "send-keys",
+            "-t",
+            tmux_target,
+            &probe_marker_command(&probe_marker),
+            "Enter",
+        ])
+        .status()
+        .map_err(|e| format!("Failed to send command to tmux: {}", e))?;
+
+    if !status.success() {
+        return Err("Failed to send command to tmux.".to_string());
+    }
+
+    if wait_for_probe_marker(tmux_target, &probe_marker)? {
+        Ok(ShellAssessment::confident(kind, observed_command))
+    } else {
+        Ok(ShellAssessment::unknown(observed_command))
+    }
+}
+
+fn probe_marker_command(marker: &str) -> String {
+    format!("printf '%s\\n' {}", quote_shell_arg(marker))
+}
+
+fn wait_for_probe_marker(tmux_target: &str, marker: &str) -> Result<bool, String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let poll_interval = std::time::Duration::from_millis(100);
+
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(poll_interval);
+        let output = capture_pane_scrollback(tmux_target)?;
+        let pane_content = String::from_utf8_lossy(&output.stdout);
+
+        if pane_content.lines().any(|line| line.trim() == marker) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn random_marker_id() -> String {
+    let mut rng = rand::thread_rng();
+    (0..8)
+        .map(|_| {
+            let chars: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+            chars[rng.gen_range(0..chars.len())] as char
+        })
+        .collect()
+}
+
 /// Build the shell command with markers
-fn build_shell_command(command: &[String], marker_id: &str) -> String {
+fn build_shell_command(command: &[String], marker_id: &str, shell_kind: ShellKind) -> String {
     let cmd_str = shell_command_text(command);
 
+    match shell_kind {
+        ShellKind::Fish => build_direct_shell_command(&cmd_str, marker_id, "{$status}"),
+        ShellKind::Bash | ShellKind::Sh => build_direct_shell_command(&cmd_str, marker_id, "$?"),
+        ShellKind::Unknown => build_fallback_shell_command(&cmd_str, marker_id),
+    }
+}
+
+fn build_direct_shell_command(command_text: &str, marker_id: &str, exit_status: &str) -> String {
+    format!(
+        "echo ___START_{marker_id}___; {command_text}; echo ___END_{marker_id}_{exit_status}___"
+    )
+}
+
+fn build_fallback_shell_command(command_text: &str, marker_id: &str) -> String {
     // Build the inner script that will run inside sh -c
     // This script: echoes start marker, runs command, echoes end marker with exit status.
     // Markers use only alphanumeric characters and underscores, so we keep them bare.
     let inner_script = format!(
         "echo ___START_{}___; {}; echo ___END_{}_$?___",
-        marker_id, cmd_str, marker_id
+        marker_id, command_text, marker_id
     );
 
     // Wrap in single quotes for outer shell - prevents variable expansion
