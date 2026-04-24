@@ -270,21 +270,31 @@ pub struct TestSession {
 impl TestSession {
     /// Start a new isolated session directly via tmux and return a handle.
     pub fn new() -> Self {
+        Self::new_with_startup_command(None)
+    }
+
+    pub fn new_with_startup_command(command: Option<&str>) -> Self {
         let prefix = unique_prefix();
         let id = unique_session_id();
         let tmux_name = format!("{}{}", prefix, id);
 
-        let status = StdCommand::new("tmux")
-            .args([
-                "new-session",
-                "-d",
-                "-x",
-                "200",
-                "-y",
-                "60",
-                "-s",
-                &tmux_name,
-            ])
+        let mut command_builder = StdCommand::new("tmux");
+        command_builder.args([
+            "new-session",
+            "-d",
+            "-x",
+            "200",
+            "-y",
+            "60",
+            "-s",
+            &tmux_name,
+        ]);
+
+        if let Some(command) = command {
+            command_builder.arg(command);
+        }
+
+        let status = command_builder
             .status()
             .expect("Failed to create tmux session");
 
