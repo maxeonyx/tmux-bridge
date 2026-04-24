@@ -345,7 +345,7 @@ fn cmd_run(
     let shell_kind = match target.clone() {
         Some(target) => {
             let tmux_target = resolve_tmux_target(Some(target))?;
-            observed_shell_kind(&tmux_target)?
+            runnable_shell_kind(&tmux_target)?
         }
         None => ShellKind::Unknown,
     };
@@ -549,6 +549,20 @@ fn observed_shell_kind(tmux_target: &str) -> Result<ShellKind, String> {
     Ok(shell_kind_from_command(&current_command))
 }
 
+fn runnable_shell_kind(tmux_target: &str) -> Result<ShellKind, String> {
+    let observed = observed_shell_kind(tmux_target)?;
+
+    if observed == ShellKind::Unknown {
+        return Ok(ShellKind::Unknown);
+    }
+
+    if pane_looks_idle(tmux_target)? {
+        Ok(observed)
+    } else {
+        Ok(ShellKind::Unknown)
+    }
+}
+
 // This is deliberately narrow: wrapper selection trusts tmux's foreground process
 // report and only recognizes the shell names we have explicit direct wrappers for.
 // Everything else stays on the fallback path.
@@ -593,6 +607,41 @@ fn probe_shell_assessment(tmux_target: &str) -> Result<ShellAssessment, String> 
     } else {
         Ok(ShellAssessment::unknown(observed_command))
     }
+}
+
+fn pane_looks_idle(tmux_target: &str) -> Result<bool, String> {
+    let output = Command::new("tmux")
+        .args([
+            "display-message",
+            "-p",
+            "-t",
+            tmux_target,
+            "#{pane_current_command}:#{pane_current_path}:#{cursor_y}:#{pane_height}",
+        ])
+        .output()
+        .map_err(|e| format!("Failed to inspect tmux target: {}", e))?;
+
+    if !output.status.success() {
+        return Err("Failed to inspect tmux target.".to_string());
+    }
+
+    let capture = capture_pane_scrollback(tmux_target)?;
+    let pane_content = String::from_utf8_lossy(&capture.stdout);
+    Ok(last_nonempty_line(&pane_content)
+        .map(looks_like_prompt)
+        .unwrap_or(false))
+}
+
+fn last_nonempty_line(content: &str) -> Option<&str> {
+    content.lines().rev().find(|line| !line.trim().is_empty())
+}
+
+fn looks_like_prompt(line: &str) -> bool {
+    let trimmed = line.trim_end();
+    trimmed.ends_with('$')
+        || trimmed.ends_with('>')
+        || trimmed.ends_with('#')
+        || trimmed.ends_with('%')
 }
 
 fn probe_marker_command(marker: &str) -> String {
