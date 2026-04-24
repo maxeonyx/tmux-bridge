@@ -346,6 +346,20 @@ mod run_dry_run_shell_quoting {
         )
     }
 
+    fn expected_direct_posix_dry_run(script: &str) -> String {
+        format!(
+            "echo ___START_dryrunid___; {}; echo ___END_dryrunid_$?___\n",
+            script
+        )
+    }
+
+    fn expected_direct_fish_dry_run(script: &str) -> String {
+        format!(
+            "echo ___START_dryrunid___; {}; echo ___END_dryrunid_{{$status}}___\n",
+            script
+        )
+    }
+
     #[test]
     fn single_arg_simple_script_is_preserved_exactly() {
         let script = "echo hi";
@@ -432,6 +446,156 @@ mod run_dry_run_shell_quoting {
         // Verified by running the emitted command via /bin/sh with THREE=3 -> "L3 it's 3".
         let script = r#"sh -c "sh -c \"sh -c \\\"printf '%s\\\\n' \\\\\\\"L3 it's \\\\\\\\$THREE\\\\\\\"\\\"\"""#;
         assert_dry_run_exact(&[script], &expected_single_arg_dry_run(script));
+    }
+
+    #[test]
+    fn known_fish_target_uses_direct_fish_markers_in_dry_run() {
+        let session = TestSession::new();
+        session.enter_shell("fish");
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--dry-run",
+                "--",
+                "echo hi",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::eq(
+                expected_direct_fish_dry_run("echo hi").into_bytes(),
+            ));
+    }
+
+    #[test]
+    fn known_bash_target_uses_direct_posix_markers_in_dry_run() {
+        let session = TestSession::new();
+        session.enter_shell("bash");
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--dry-run",
+                "--",
+                "echo hi",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::eq(
+                expected_direct_posix_dry_run("echo hi").into_bytes(),
+            ));
+    }
+
+    #[test]
+    fn known_sh_target_uses_direct_posix_markers_in_dry_run() {
+        let session = TestSession::new();
+        session.enter_shell("sh");
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--dry-run",
+                "--",
+                "echo hi",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::eq(
+                expected_direct_posix_dry_run("echo hi").into_bytes(),
+            ));
+    }
+
+    #[test]
+    fn unknown_target_keeps_sh_c_wrapper_in_dry_run() {
+        let session = TestSession::new();
+        session.send_main_pane_command("sleep 30");
+        session.wait_for_current_command("sleep", Duration::from_secs(10));
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--dry-run",
+                "--",
+                "echo hi",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::eq(
+                expected_single_arg_dry_run("echo hi").into_bytes(),
+            ));
+    }
+}
+
+mod run_shell_adaptive_execution {
+    use super::*;
+
+    #[test]
+    fn known_fish_single_arg_uses_active_shell_semantics() {
+        let session = TestSession::new();
+        session.enter_shell("fish");
+
+        session
+            .tb_command()
+            .args(["run", "--target", session.target(), "--", "math 1 + 2"])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("3"));
+    }
+
+    #[test]
+    fn known_fish_single_arg_allows_explicit_sh_escape_hatch() {
+        let session = TestSession::new();
+        session.enter_shell("fish");
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "sh -c 'echo $((1 + 2))'",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("3"));
+    }
+
+    #[test]
+    fn known_fish_multi_arg_preserves_argument_boundaries_directly() {
+        let session = TestSession::new();
+        session.enter_shell("fish");
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "printf",
+                "%s\\n",
+                "two words",
+                "$HOME",
+                "*.rs",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("two words"))
+            .stdout(predicate::str::contains("$HOME"))
+            .stdout(predicate::str::contains("*.rs"));
     }
 }
 
