@@ -2,7 +2,7 @@
 
 ## Current State
 
-The Rust CLI (`tb`) is **complete**. All 78 E2E tests pass.
+The Rust CLI (`tb`) now includes the core bridge commands plus a minimal `tb info` shell-assessment command. All 95 E2E tests pass.
 
 ## Running Tests
 
@@ -23,8 +23,9 @@ cargo test --test done
 ### Core Commands - COMPLETE
 
 - [x] **`tb start`** - Create tmux session with auto-generated ID (10 tests)
-- [x] **`tb run`** - Synchronous command execution (40 tests)
-- [x] **`tb launch`** - Background task in split pane (9 tests)
+- [x] **`tb info`** - Minimal shell assessment for Stage 4 (4 tests)
+- [x] **`tb run`** - Synchronous command execution (51 tests)
+- [x] **`tb launch`** - Background task in split pane (10 tests)
 - [x] **`tb check`** - Check background task status + main pane capture (11 tests)
 - [x] **`tb done`** - Close background task pane (8 tests)
 
@@ -57,7 +58,7 @@ cargo test --test done
 
 ### In Progress — New Commands
 
-- [ ] **`tb info`** — broad smart environment probe. Stage 4 only implements the minimum shell assessment that `tb run` needs right now: plain-text confidence-aware reporting for fish / bash / `sh` / unknown, with unknown falling back to the existing `sh -c` path. The broader probe remains deferred:
+- [ ] **`tb info` broader probe follow-up** — Stage 4 shipped the minimum shell assessment that `tb run` needs right now: plain-text confidence-aware reporting for fish / bash / `sh` / unknown, with unknown falling back to the existing `sh -c` path. The broader probe remains deferred:
   - richer environment details beyond shell assessment
   - stronger REPL / non-shell detection
   - tmux copy/scroll mode handling

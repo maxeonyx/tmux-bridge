@@ -11,6 +11,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 | Command | Purpose |
 |---------|---------|
 | `tb start` | Human starts session, displays ID like `a7x` |
+| `tb info` | Agent inspects shell confidence for a target pane |
 | `tb run` | Agent runs synchronous command, waits for output |
 | `tb run --dry-run` | Agent prints the exact `tmux send-keys` string without running it |
 | `tb launch` | Agent starts background task in split pane |
@@ -32,11 +33,12 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 # Build
 cargo build
 
-# Run tests (78 tests defining behavior)
+# Run tests (95 tests defining behavior)
 cargo test
 
 # Run specific test file
 cargo test --test start
+cargo test --test info
 cargo test --test run
 cargo test --test launch
 cargo test --test check
@@ -122,6 +124,7 @@ src/
   main.rs         # CLI setup with clap, dispatch to commands
 tests/
   start.rs        # E2E tests for tb start
+  info.rs         # E2E tests for tb info
   run.rs          # E2E tests for tb run
   launch.rs       # E2E tests for tb launch
   check.rs        # E2E tests for tb check
@@ -147,6 +150,13 @@ Format: `___START_$id___` and `___END_${id}_$exit_status___` where `$id` is rand
 - unknown / not confident: fallback to `sh -c '...'`
 
 This keeps the existing POSIX fallback while removing one quoting layer for confident fish, bash, and `sh` targets.
+
+The confidence policy is intentionally split by responsibility:
+
+- `tb run` trusts tmux's `#{pane_current_command}` as the wrapper-selection signal. If tmux reports the foreground process as exactly `fish`, `bash`, or `sh`, `tb run` uses that direct wrapper; otherwise it falls back to `sh -c`.
+- `tb info` starts from the same foreground-process signal but also sends a small live probe before reporting `confident`, because its job is to give the agent richer assessment context.
+
+This difference is intentional, not a bug.
 
 ### Quoting principles
 The human sees every command typed into their terminal. Quoting must be **correct** and **minimal** — only add quotes/escapes that are strictly necessary.
