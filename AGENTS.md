@@ -33,7 +33,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 # Build
 cargo build
 
-# Run tests (95 tests defining behavior)
+# Run tests (96 tests defining behavior)
 cargo test
 
 # Run specific test file
@@ -153,7 +153,7 @@ This keeps the existing POSIX fallback while removing one quoting layer for conf
 
 The confidence policy is intentionally split by responsibility:
 
-- `tb run` trusts tmux's `#{pane_current_command}` as the wrapper-selection signal. If tmux reports the foreground process as exactly `fish`, `bash`, or `sh`, `tb run` uses that direct wrapper; otherwise it falls back to `sh -c`.
+- `tb run` starts from tmux's `#{pane_current_command}` but also checks that the pane still looks idle / prompt-like before using a direct wrapper. If tmux reports `fish`, `bash`, or `sh` but the pane looks busy (for example a startup command is still occupying the pane), `tb run` falls back to `sh -c`.
 - `tb info` starts from the same foreground-process signal but also sends a small live probe before reporting `confident`, because its job is to give the agent richer assessment context.
 
 This difference is intentional, not a bug.

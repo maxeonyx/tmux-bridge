@@ -2,7 +2,7 @@
 
 ## Current State
 
-The Rust CLI (`tb`) now includes the core bridge commands plus a minimal `tb info` shell-assessment command. All 95 E2E tests pass.
+The Rust CLI (`tb`) now includes the core bridge commands plus a minimal `tb info` shell-assessment command. All 96 E2E tests pass.
 
 ## Running Tests
 
@@ -12,6 +12,7 @@ cargo test
 
 # Run specific test file
 cargo test --test start
+cargo test --test info
 cargo test --test run
 cargo test --test launch
 cargo test --test check
@@ -24,7 +25,7 @@ cargo test --test done
 
 - [x] **`tb start`** - Create tmux session with auto-generated ID (10 tests)
 - [x] **`tb info`** - Minimal shell assessment for Stage 4 (4 tests)
-- [x] **`tb run`** - Synchronous command execution (51 tests)
+- [x] **`tb run`** - Synchronous command execution (52 tests)
 - [x] **`tb launch`** - Background task in split pane (10 tests)
 - [x] **`tb check`** - Check background task status + main pane capture (11 tests)
 - [x] **`tb done`** - Close background task pane (8 tests)
