@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{TestSession, tb_cmd};
+use common::{tb_cmd, TestSession};
 use predicates::prelude::*;
 use std::time::Duration;
 
@@ -519,6 +519,27 @@ mod run_dry_run_shell_quoting {
         let session = TestSession::new();
         session.send_main_pane_command("sleep 30");
         session.wait_for_current_command("sleep", Duration::from_secs(10));
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--dry-run",
+                "--",
+                "echo hi",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::eq(
+                expected_single_arg_dry_run("echo hi").into_bytes(),
+            ));
+    }
+
+    #[test]
+    fn startup_command_without_prompt_keeps_sh_c_wrapper_in_dry_run() {
+        let session = TestSession::new_with_startup_command(Some("sleep 999"));
 
         session
             .tb_command()
