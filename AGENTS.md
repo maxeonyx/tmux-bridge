@@ -139,16 +139,22 @@ Commands use `--target TARGET` / `-t`. Simple names first try a literal tmux ses
 ### Command markers
 Format: `___START_$id___` and `___END_${id}_$exit_status___` where `$id` is random.
 
-### Why `sh -c` is always needed
-The marker wrapper uses `$?` to capture exit status, and `$?` is shell-dependent (bash/zsh: `$?`, fish: `$status`). Since the human's interactive shell could be anything, we must wrap in `sh -c '...'` to guarantee POSIX semantics. This is a fixed cost — don't try to optimize it away.
+### Shell-adaptive wrappers
+`tb run` uses direct marker wrappers only when the target shell is confidently identified as one of the tested cases for this phase:
+
+- fish: `echo ___START_xxx___; <cmd>; echo ___END_xxx_{$status}___`
+- bash / `sh`: `echo ___START_xxx___; <cmd>; echo ___END_xxx_$?___`
+- unknown / not confident: fallback to `sh -c '...'`
+
+This keeps the existing POSIX fallback while removing one quoting layer for confident fish, bash, and `sh` targets.
 
 ### Quoting principles
 The human sees every command typed into their terminal. Quoting must be **correct** and **minimal** — only add quotes/escapes that are strictly necessary.
 
-- **Single-arg mode (shell script):** A single argument after `--` is treated as a shell script. `tb` wraps it in `sh -c '...'` automatically. **Never** add your own `bash -c` wrapper — that creates a redundant quoting layer.
+- **Single-arg mode (shell script):** A single argument after `--` is treated as shell code for the active shell when `tb` knows the shell confidently; otherwise it falls back to `sh -c '...'`. **Never** add your own `bash -c` wrapper just to get a shell script mode — that creates a redundant quoting layer. If you specifically want POSIX semantics in a fish pane, send `sh -c '...'` explicitly.
   - ✅ `tb run -- 'echo "hello"; ls -la'`
   - ❌ `tb run -- bash -c 'echo "hello"; ls -la'`
-- **Multi-arg mode:** Multiple arguments after `--` are each quoted individually with smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`)
+- **Multi-arg mode:** Multiple arguments after `--` are each quoted individually with smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`). This also goes direct for confident fish, bash, and `sh` targets, and falls back to `sh -c` otherwise.
 - Markers (`___START_xxx___`) are alphanumeric + underscores — never quote them
 
 ### Timeout behavior

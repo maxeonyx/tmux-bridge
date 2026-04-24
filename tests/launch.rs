@@ -156,19 +156,37 @@ mod launch_pane_splitting {
     fn rejects_seventh_tagged_task_even_with_untagged_panes() {
         let session = TestSession::new();
 
-        for _ in 1..=6 {
-            session
-                .tb_command()
-                .args(["launch", "--target", session.target(), "--", "sleep", "60"])
-                .assert()
-                .success();
-        }
+        for index in 1..=6 {
+            let split = StdCommand::new("tmux")
+                .args([
+                    "split-window",
+                    "-t",
+                    &session.tmux_name(),
+                    "-d",
+                    "-l",
+                    "1",
+                    "-P",
+                    "-F",
+                    "#{pane_id}",
+                ])
+                .output()
+                .expect("Failed to create tagged task pane");
+            assert!(split.status.success(), "Failed to create tagged task pane");
 
-        let split = StdCommand::new("tmux")
-            .args(["split-window", "-t", &session.tmux_name(), "-d", "-l", "5"])
-            .output()
-            .expect("Failed to create extra untagged pane");
-        assert!(split.status.success(), "Failed to create extra pane");
+            let pane_id = String::from_utf8_lossy(&split.stdout).trim().to_string();
+            let set_tag = StdCommand::new("tmux")
+                .args([
+                    "set-option",
+                    "-p",
+                    "-t",
+                    &pane_id,
+                    "@tb_task",
+                    &format!("t{}", index),
+                ])
+                .status()
+                .expect("Failed to tag pane as task");
+            assert!(set_tag.success(), "Failed to tag pane as task");
+        }
 
         session
             .tb_command()
