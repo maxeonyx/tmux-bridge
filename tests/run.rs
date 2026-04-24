@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{TestSession, tb_cmd};
+use common::{tb_cmd, TestSession};
 use predicates::prelude::*;
 use std::time::Duration;
 
@@ -596,6 +596,68 @@ mod run_shell_adaptive_execution {
             .stdout(predicate::str::contains("two words"))
             .stdout(predicate::str::contains("$HOME"))
             .stdout(predicate::str::contains("*.rs"));
+    }
+
+    #[test]
+    fn known_bash_direct_path_preserves_output_and_exit_status() {
+        let session = TestSession::new();
+        session.enter_shell("bash");
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "printf '%s\\n' bash-direct; bash -c 'exit 17'",
+            ])
+            .assert()
+            .failure()
+            .code(17)
+            .stdout(predicate::str::contains("bash-direct"));
+    }
+
+    #[test]
+    fn known_sh_direct_path_preserves_output_and_exit_status() {
+        let session = TestSession::new();
+        session.enter_shell("sh");
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "printf '%s\\n' sh-direct; sh -c 'exit 23'",
+            ])
+            .assert()
+            .failure()
+            .code(23)
+            .stdout(predicate::str::contains("sh-direct"));
+    }
+
+    #[test]
+    fn unknown_target_fallback_executes_via_sh_c() {
+        let session = TestSession::new();
+        session.send_main_pane_command("bash -c 'exec -a mystery sh'");
+        session.wait_for_current_command("mystery", Duration::from_secs(10));
+        session.wait_for_shell_ready();
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--target",
+                session.target(),
+                "--",
+                "printf '%s\\n' fallback-output; sh -c 'exit 29'",
+            ])
+            .assert()
+            .failure()
+            .code(29)
+            .stdout(predicate::str::contains("fallback-output"));
     }
 }
 

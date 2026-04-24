@@ -359,6 +359,17 @@ impl TestSession {
         );
     }
 
+    pub fn wait_for_shell_ready(&self) {
+        let marker = random_test_marker();
+        self.send_main_pane_command(&format!("printf '%s\\n' {}", marker));
+        wait_for_pane_content(
+            &self.tmux_name(),
+            "shell ready marker",
+            Duration::from_secs(10),
+            |content| content.lines().any(|line| line.trim() == marker),
+        );
+    }
+
     pub fn wait_for_check_command_output<F>(
         &self,
         task_id: &str,
