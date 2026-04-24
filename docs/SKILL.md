@@ -38,6 +38,19 @@ tb run -t %42 -- make build
 
 Simple names try a literal tmux session first, then fall back to `tb-{name}`. Targets containing tmux syntax (`:`, `.`, `%`) pass through unchanged.
 
+## Inspect the target pane first
+
+Run `tb info` before your first interaction with any target pane:
+
+```bash
+tb info -t <target>
+# Shell assessment: fish (confident)
+# Shell assessment: bash (confident)
+# Shell assessment: unknown (direct shell-specific execution unsafe)
+```
+
+This tells you the shell type and whether `tb run` can send commands directly. Use it to decide whether fish-native syntax is safe, or whether you need POSIX fallbacks.
+
 ## Synchronous
 
 ```bash
@@ -48,7 +61,13 @@ tb run -t <target> -- sudo apt install foo
 tb run -t <target> --timeout 60 -- 'echo "Starting..."; sudo systemctl restart nginx; echo "Done"'
 ```
 
-**Never wrap in `bash -c`** — `tb` already wraps single args in `sh -c` for you:
+**Never wrap in `bash -c`** — `tb run` adapts its marker wrapper to the detected shell automatically:
+
+- **Fish (confident):** sends commands directly in fish syntax — fish-native code works: `tb run -t <target> -- 'math 1 + 2'`
+- **Bash/sh (confident):** sends commands directly in POSIX syntax
+- **Unknown:** falls back to `sh -c` wrapper
+
+If you specifically need POSIX semantics in a fish pane, send `sh -c '...'` explicitly as your command.
 
 - ✅ `tb run -t <target> -- 'cmd1; cmd2'`
 - ❌ `tb run -t <target> -- bash -c 'cmd1; cmd2'`
