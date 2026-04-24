@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{tb_cmd, TestSession};
+use common::{TestSession, tb_cmd};
 use predicates::prelude::*;
 use std::time::Duration;
 

@@ -336,6 +336,12 @@ fn cmd_run(
     last: usize,
     command: Vec<String>,
 ) -> Result<(), String> {
+    // Wrapper selection intentionally uses only tmux's foreground-process view.
+    // #{pane_current_command} is the confidence signal for choosing the marker syntax:
+    // if tmux says the foreground process is exactly fish, bash, or sh, we use the
+    // direct wrapper for that shell family; otherwise we stay on the conservative
+    // sh -c fallback. `tb info` does extra probing because its job is to report
+    // richer context to the agent, not because `tb run` needs a second gate.
     let shell_kind = match target.clone() {
         Some(target) => {
             let tmux_target = resolve_tmux_target(Some(target))?;
@@ -543,6 +549,9 @@ fn observed_shell_kind(tmux_target: &str) -> Result<ShellKind, String> {
     Ok(shell_kind_from_command(&current_command))
 }
 
+// This is deliberately narrow: wrapper selection trusts tmux's foreground process
+// report and only recognizes the shell names we have explicit direct wrappers for.
+// Everything else stays on the fallback path.
 fn shell_kind_from_command(command: &str) -> ShellKind {
     match command {
         "fish" => ShellKind::Fish,
@@ -553,6 +562,9 @@ fn shell_kind_from_command(command: &str) -> ShellKind {
 }
 
 fn probe_shell_assessment(tmux_target: &str) -> Result<ShellAssessment, String> {
+    // `tb info` starts from the same tmux foreground-process signal as `tb run`,
+    // then adds a live probe before reporting confidence. That extra probe is for
+    // agent-facing assessment, not for direct-wrapper selection.
     let observed_command = pane_current_command(tmux_target)?;
     let kind = shell_kind_from_command(&observed_command);
 
