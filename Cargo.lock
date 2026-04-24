@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "tb"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "assert_cmd",
  "clap",
