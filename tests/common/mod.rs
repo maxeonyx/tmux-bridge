@@ -338,10 +338,6 @@ impl TestSession {
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
-    pub fn wait_for_current_command(&self, expected: &str, timeout: Duration) -> String {
-        wait_for_current_command(&self.tmux_name(), expected, timeout)
-    }
-
     pub fn enter_shell(&self, shell: &str) {
         self.send_main_pane_command(shell);
         self.wait_for_current_command(shell, Duration::from_secs(10));
@@ -367,6 +363,10 @@ impl TestSession {
             Duration::from_secs(10),
             |content| content.lines().any(|line| line.trim() == marker),
         );
+    }
+
+    pub fn wait_for_current_command(&self, expected: &str, timeout: Duration) -> String {
+        wait_for_current_command(&self.tmux_name(), expected, timeout)
     }
 
     pub fn wait_for_shell_ready(&self) {
