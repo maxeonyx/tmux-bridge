@@ -3,7 +3,7 @@
 //! A CLI tool that allows AI agents to inject commands into interactive
 //! terminal sessions controlled by humans.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use rand::Rng;
 use std::collections::HashSet;
 use std::process::Command;
@@ -58,6 +58,10 @@ enum Commands {
         /// Tmux target (session, session:window.pane, or %pane)
         #[arg(short, long)]
         target: Option<String>,
+
+        /// Shell to use for direct marker wrappers
+        #[arg(long, value_enum)]
+        shell: Option<RunShell>,
 
         /// Print the exact command sent to tmux and exit
         #[arg(long)]
@@ -138,13 +142,23 @@ fn main() {
         Commands::Start { session } => cmd_start(session),
         Commands::Run {
             target,
+            shell,
             dry_run,
             timeout,
             max_time,
             first,
             last,
             command,
-        } => cmd_run(target, dry_run, timeout, max_time, first, last, command),
+        } => cmd_run(RunOptions {
+            target,
+            shell,
+            dry_run,
+            timeout,
+            max_time,
+            first,
+            last,
+            command,
+        }),
         Commands::Info { target } => cmd_info(target),
         Commands::Launch { target, command } => cmd_launch(target, command),
         Commands::Check {
@@ -170,6 +184,23 @@ enum ShellKind {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum RunShell {
+    Fish,
+    Bash,
+    Sh,
+}
+
+impl From<RunShell> for ShellKind {
+    fn from(value: RunShell) -> Self {
+        match value {
+            RunShell::Fish => ShellKind::Fish,
+            RunShell::Bash => ShellKind::Bash,
+            RunShell::Sh => ShellKind::Sh,
+        }
+    }
+}
+
 impl ShellKind {
     fn label(self) -> &'static str {
         match self {
@@ -184,6 +215,17 @@ impl ShellKind {
 struct ShellAssessment {
     kind: ShellKind,
     observed_command: String,
+}
+
+struct RunOptions {
+    target: Option<String>,
+    shell: Option<RunShell>,
+    dry_run: bool,
+    timeout: u64,
+    max_time: u64,
+    first: usize,
+    last: usize,
+    command: Vec<String>,
 }
 
 impl ShellAssessment {
@@ -327,28 +369,19 @@ fn generate_session_id() -> Result<String, String> {
     Ok(format!("{}{}{}", first_letter, r1, r2))
 }
 
-fn cmd_run(
-    target: Option<String>,
-    dry_run: bool,
-    timeout: u64,
-    max_time: u64,
-    first: usize,
-    last: usize,
-    command: Vec<String>,
-) -> Result<(), String> {
-    // Wrapper selection intentionally uses only tmux's foreground-process view.
-    // #{pane_current_command} is the confidence signal for choosing the marker syntax:
-    // if tmux says the foreground process is exactly fish, bash, or sh, we use the
-    // direct wrapper for that shell family; otherwise we stay on the conservative
-    // sh -c fallback. `tb info` does extra probing because its job is to report
-    // richer context to the agent, not because `tb run` needs a second gate.
-    let shell_kind = match target.clone() {
-        Some(target) => {
-            let tmux_target = resolve_tmux_target(Some(target))?;
-            runnable_shell_kind(&tmux_target)?
-        }
-        None => ShellKind::Unknown,
-    };
+fn cmd_run(options: RunOptions) -> Result<(), String> {
+    let RunOptions {
+        target,
+        shell,
+        dry_run,
+        timeout,
+        max_time,
+        first,
+        last,
+        command,
+    } = options;
+
+    let shell_kind = shell.map(Into::into).unwrap_or(ShellKind::Unknown);
 
     if dry_run {
         println!("{}", build_shell_command(&command, "dryrunid", shell_kind));
@@ -525,47 +558,6 @@ fn capture_pane_scrollback(pane_target: &str) -> Result<std::process::Output, St
         .map_err(|e| format!("Failed to capture pane: {}", e))
 }
 
-fn pane_current_command(tmux_target: &str) -> Result<String, String> {
-    let output = Command::new("tmux")
-        .args([
-            "display-message",
-            "-p",
-            "-t",
-            tmux_target,
-            "#{pane_current_command}",
-        ])
-        .output()
-        .map_err(|e| format!("Failed to inspect tmux target: {}", e))?;
-
-    if !output.status.success() {
-        return Err("Failed to inspect tmux target.".to_string());
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-fn observed_shell_kind(tmux_target: &str) -> Result<ShellKind, String> {
-    let current_command = pane_current_command(tmux_target)?;
-    Ok(shell_kind_from_command(&current_command))
-}
-
-fn runnable_shell_kind(tmux_target: &str) -> Result<ShellKind, String> {
-    let observed = observed_shell_kind(tmux_target)?;
-
-    if observed == ShellKind::Unknown {
-        return Ok(ShellKind::Unknown);
-    }
-
-    if pane_looks_idle(tmux_target)? {
-        Ok(observed)
-    } else {
-        Ok(ShellKind::Unknown)
-    }
-}
-
-// This is deliberately narrow: wrapper selection trusts tmux's foreground process
-// report and only recognizes the shell names we have explicit direct wrappers for.
-// Everything else stays on the fallback path.
 fn shell_kind_from_command(command: &str) -> ShellKind {
     match command {
         "fish" => ShellKind::Fish,
@@ -576,10 +568,7 @@ fn shell_kind_from_command(command: &str) -> ShellKind {
 }
 
 fn probe_shell_assessment(tmux_target: &str) -> Result<ShellAssessment, String> {
-    // `tb info` starts from the same tmux foreground-process signal as `tb run`,
-    // then adds a live probe before reporting confidence. That extra probe is for
-    // agent-facing assessment, not for direct-wrapper selection.
-    let observed_command = pane_current_command(tmux_target)?;
+    let observed_command = shell_observed_command(tmux_target)?;
     let kind = shell_kind_from_command(&observed_command);
 
     if kind == ShellKind::Unknown {
@@ -609,14 +598,14 @@ fn probe_shell_assessment(tmux_target: &str) -> Result<ShellAssessment, String> 
     }
 }
 
-fn pane_looks_idle(tmux_target: &str) -> Result<bool, String> {
+fn shell_observed_command(tmux_target: &str) -> Result<String, String> {
     let output = Command::new("tmux")
         .args([
             "display-message",
             "-p",
             "-t",
             tmux_target,
-            "#{pane_current_command}:#{pane_current_path}:#{cursor_y}:#{pane_height}",
+            "#{pane_current_command}",
         ])
         .output()
         .map_err(|e| format!("Failed to inspect tmux target: {}", e))?;
@@ -625,23 +614,7 @@ fn pane_looks_idle(tmux_target: &str) -> Result<bool, String> {
         return Err("Failed to inspect tmux target.".to_string());
     }
 
-    let capture = capture_pane_scrollback(tmux_target)?;
-    let pane_content = String::from_utf8_lossy(&capture.stdout);
-    Ok(last_nonempty_line(&pane_content)
-        .map(looks_like_prompt)
-        .unwrap_or(false))
-}
-
-fn last_nonempty_line(content: &str) -> Option<&str> {
-    content.lines().rev().find(|line| !line.trim().is_empty())
-}
-
-fn looks_like_prompt(line: &str) -> bool {
-    let trimmed = line.trim_end();
-    trimmed.ends_with('$')
-        || trimmed.ends_with('>')
-        || trimmed.ends_with('#')
-        || trimmed.ends_with('%')
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn probe_marker_command(marker: &str) -> String {
