@@ -51,6 +51,14 @@ tb info -t <target>
 
 This tells you the shell type and whether `tb run` can send commands directly. Use it to decide whether fish-native syntax is safe, or whether you need POSIX fallbacks.
 
+After `tb info`, pass the result back to `tb run` with `--shell` when you are confident:
+
+```bash
+tb run -t <target> --shell fish -- 'math 1 + 2'
+tb run -t <target> --shell bash -- 'echo "$HOME"; uname -a'
+tb run -t <target> -- 'echo "$HOME"; uname -a'   # no --shell: conservative sh -c fallback
+```
+
 ## Synchronous
 
 ```bash
@@ -61,11 +69,11 @@ tb run -t <target> -- sudo apt install foo
 tb run -t <target> --timeout 60 -- 'echo "Starting..."; sudo systemctl restart nginx; echo "Done"'
 ```
 
-**Never wrap in `bash -c`** — `tb run` adapts its marker wrapper to the detected shell automatically:
+**Never wrap in `bash -c`** — `tb run` only uses direct shell-specific wrappers when you explicitly provide `--shell`:
 
-- **Fish (confident):** sends commands directly in fish syntax — fish-native code works: `tb run -t <target> -- 'math 1 + 2'`
-- **Bash/sh (confident):** sends commands directly in POSIX syntax
-- **Unknown:** falls back to `sh -c` wrapper
+- **`--shell fish`:** sends commands directly in fish syntax — fish-native code works: `tb run -t <target> --shell fish -- 'math 1 + 2'`
+- **`--shell bash` / `--shell sh`:** sends commands directly in POSIX syntax
+- **No `--shell`:** falls back to `sh -c` wrapper
 
 If you specifically need POSIX semantics in a fish pane, send `sh -c '...'` explicitly as your command.
 

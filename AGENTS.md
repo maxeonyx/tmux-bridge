@@ -22,7 +22,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 
 `tb` operates on tmux panes whose foreground program may be an SSH client connected to a remote shell. The primary use case is a local tmux pane showing a remote shell over SSH.
 
-The only reliable signal is **pane content** — what the human sees. tmux metadata like `#{pane_current_command}` reports the local process and cannot see through SSH (it would report `ssh`, not the remote shell). Therefore:
+The only reliable signal is **pane content** — what the human sees. tmux's local process metadata cannot see through SSH and only reflects the local client process, not the remote shell. Therefore:
 
 - All pane interaction uses only `tmux send-keys` and `tmux capture-pane`
 - Detection and probing must work through SSH — if it fails when the pane is an SSH session, it's broken
