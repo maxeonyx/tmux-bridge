@@ -214,7 +214,6 @@ impl ShellKind {
 
 struct ShellAssessment {
     kind: ShellKind,
-    observed_command: String,
 }
 
 struct RunOptions {
@@ -229,17 +228,13 @@ struct RunOptions {
 }
 
 impl ShellAssessment {
-    fn confident(kind: ShellKind, observed_command: String) -> Self {
-        Self {
-            kind,
-            observed_command,
-        }
+    fn confident(kind: ShellKind) -> Self {
+        Self { kind }
     }
 
-    fn unknown(observed_command: String) -> Self {
+    fn unknown() -> Self {
         Self {
             kind: ShellKind::Unknown,
-            observed_command,
         }
     }
 
@@ -248,10 +243,9 @@ impl ShellAssessment {
             ShellKind::Fish | ShellKind::Bash | ShellKind::Sh => {
                 format!("Shell assessment: {} (confident)", self.kind.label())
             }
-            ShellKind::Unknown => format!(
-                "Shell assessment: unknown (direct shell-specific execution unsafe). Foreground command: {}",
-                self.observed_command
-            ),
+            ShellKind::Unknown => {
+                "Shell assessment: unknown (direct shell-specific execution unsafe).".to_string()
+            }
         }
     }
 }
@@ -558,9 +552,14 @@ fn capture_pane_scrollback(pane_target: &str) -> Result<std::process::Output, St
         .map_err(|e| format!("Failed to capture pane: {}", e))
 }
 
-fn shell_kind_from_command(command: &str) -> ShellKind {
-    match command {
-        "fish" => ShellKind::Fish,
+fn shell_kind_from_argv0(argv0: &str) -> ShellKind {
+    let shell_name = argv0
+        .rsplit('/')
+        .next()
+        .unwrap_or(argv0)
+        .trim_start_matches('-');
+
+    match shell_name {
         "bash" => ShellKind::Bash,
         "sh" => ShellKind::Sh,
         _ => ShellKind::Unknown,
@@ -568,13 +567,6 @@ fn shell_kind_from_command(command: &str) -> ShellKind {
 }
 
 fn probe_shell_assessment(tmux_target: &str) -> Result<ShellAssessment, String> {
-    let observed_command = shell_observed_command(tmux_target)?;
-    let kind = shell_kind_from_command(&observed_command);
-
-    if kind == ShellKind::Unknown {
-        return Ok(ShellAssessment::unknown(observed_command));
-    }
-
     let probe_marker = format!("___TB_INFO_PROBE_{}___", random_marker_id());
     let status = Command::new("tmux")
         .args([
@@ -591,51 +583,59 @@ fn probe_shell_assessment(tmux_target: &str) -> Result<ShellAssessment, String> 
         return Err("Failed to send command to tmux.".to_string());
     }
 
-    if wait_for_probe_marker(tmux_target, &probe_marker)? {
-        Ok(ShellAssessment::confident(kind, observed_command))
-    } else {
-        Ok(ShellAssessment::unknown(observed_command))
+    match wait_for_probe_signature(tmux_target, &probe_marker)? {
+        Some(kind) => Ok(ShellAssessment::confident(kind)),
+        None => Ok(ShellAssessment::unknown()),
     }
-}
-
-fn shell_observed_command(tmux_target: &str) -> Result<String, String> {
-    let output = Command::new("tmux")
-        .args([
-            "display-message",
-            "-p",
-            "-t",
-            tmux_target,
-            "#{pane_current_command}",
-        ])
-        .output()
-        .map_err(|e| format!("Failed to inspect tmux target: {}", e))?;
-
-    if !output.status.success() {
-        return Err("Failed to inspect tmux target.".to_string());
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn probe_marker_command(marker: &str) -> String {
-    format!("printf '%s\\n' {}", quote_shell_arg(marker))
+    format!(
+        "printf '%s|%s|%s|%s\\n' {} \"$version\" \"$BASH_VERSION\" \"$0\"",
+        quote_shell_arg(marker)
+    )
 }
 
-fn wait_for_probe_marker(tmux_target: &str, marker: &str) -> Result<bool, String> {
+fn wait_for_probe_signature(tmux_target: &str, marker: &str) -> Result<Option<ShellKind>, String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
     let poll_interval = std::time::Duration::from_millis(100);
+    let marker_prefix = format!("{}|", marker);
 
     while std::time::Instant::now() < deadline {
         std::thread::sleep(poll_interval);
         let output = capture_pane_scrollback(tmux_target)?;
         let pane_content = String::from_utf8_lossy(&output.stdout);
 
-        if pane_content.lines().any(|line| line.trim() == marker) {
-            return Ok(true);
+        for line in pane_content.lines() {
+            if let Some(signature) = line.trim().strip_prefix(&marker_prefix) {
+                return Ok(parse_probe_signature(signature));
+            }
         }
     }
 
-    Ok(false)
+    Ok(None)
+}
+
+fn parse_probe_signature(signature: &str) -> Option<ShellKind> {
+    let mut parts = signature.splitn(3, '|');
+    let fish_version = parts.next().unwrap_or("");
+    let bash_version = parts.next().unwrap_or("");
+    let argv0 = parts.next().unwrap_or("");
+
+    if !fish_version.is_empty() {
+        return Some(ShellKind::Fish);
+    }
+
+    let argv0_kind = shell_kind_from_argv0(argv0);
+    if argv0_kind != ShellKind::Unknown {
+        return Some(argv0_kind);
+    }
+
+    if !bash_version.is_empty() {
+        return Some(ShellKind::Bash);
+    }
+
+    None
 }
 
 fn random_marker_id() -> String {
