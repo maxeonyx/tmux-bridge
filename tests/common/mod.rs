@@ -94,43 +94,6 @@ pub fn capture_pane_content(target: &str) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-pub fn current_command(target: &str) -> String {
-    let output = run_tmux_output(
-        &[
-            "display-message",
-            "-p",
-            "-t",
-            target,
-            "#{pane_current_command}",
-        ],
-        "inspect current tmux pane command",
-    );
-
-    if !output.status.success() {
-        panic!(
-            "Failed to inspect current command for {}\nstdout:\n{}\nstderr:\n{}",
-            target,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
-}
-
-pub fn wait_for_current_command(target: &str, expected: &str, timeout: Duration) -> String {
-    let description = format!("current command {} for {}", expected, target);
-
-    wait_until(&description, timeout, DEFAULT_POLL_INTERVAL, || {
-        let command = current_command(target);
-        if command == expected {
-            WaitStatus::ready(command.clone(), command)
-        } else {
-            WaitStatus::pending(command)
-        }
-    })
-}
-
 pub fn wait_for_pane_content<F>(
     target: &str,
     description: &str,
@@ -154,12 +117,19 @@ fn last_nonempty_line(content: &str) -> Option<&str> {
     content.lines().rev().find(|line| !line.trim().is_empty())
 }
 
-fn prompt_char_for_shell(shell: &str) -> Option<char> {
+fn prompt_chars_for_shell(shell: &str) -> Option<&'static [char]> {
     match shell {
-        "fish" => Some('>'),
-        "bash" | "sh" => Some('$'),
+        "fish" => Some(&['>']),
+        "bash" | "sh" => Some(&['$', '#']),
         _ => None,
     }
+}
+
+fn line_ends_with_prompt_char(line: &str, prompt_chars: &[char]) -> bool {
+    let trimmed = line.trim_end();
+    prompt_chars
+        .iter()
+        .any(|prompt_char| trimmed.ends_with(*prompt_char))
 }
 
 fn random_test_marker() -> String {
@@ -340,16 +310,15 @@ impl TestSession {
 
     pub fn enter_shell(&self, shell: &str) {
         self.send_main_pane_command(shell);
-        self.wait_for_current_command(shell, Duration::from_secs(10));
 
-        if let Some(prompt_char) = prompt_char_for_shell(shell) {
+        if let Some(prompt_chars) = prompt_chars_for_shell(shell) {
             wait_for_pane_content(
                 &self.tmux_name(),
                 "shell prompt",
                 Duration::from_secs(10),
                 |content| {
                     last_nonempty_line(content)
-                        .map(|line| line.ends_with(prompt_char))
+                        .map(|line| line_ends_with_prompt_char(line, prompt_chars))
                         .unwrap_or(false)
                 },
             );
@@ -363,10 +332,6 @@ impl TestSession {
             Duration::from_secs(10),
             |content| content.lines().any(|line| line.trim() == marker),
         );
-    }
-
-    pub fn wait_for_current_command(&self, expected: &str, timeout: Duration) -> String {
-        wait_for_current_command(&self.tmux_name(), expected, timeout)
     }
 
     pub fn wait_for_shell_ready(&self) {
