@@ -11,21 +11,32 @@ This document is for AI coding assistants working on the tmux-bridge codebase.
 | Command | Purpose |
 |---------|---------|
 | `tb start` | Human starts session, displays ID like `a7x` |
-| `tb info` | Agent inspects shell confidence for a target pane |
+| `tb info` | Agent probes pane to identify shell via observable behavior |
 | `tb run` | Agent runs synchronous command, waits for output |
 | `tb run --dry-run` | Agent prints the exact `tmux send-keys` string without running it |
 | `tb launch` | Agent starts background task in split pane |
 | `tb check` | Agent checks background task status/output, or captures main pane |
 | `tb done` | Agent closes background task pane |
 
+## Fundamental Constraints
+
+`tb` operates on tmux panes whose foreground program may be an SSH client connected to a remote shell. The primary use case is a local tmux pane showing a remote shell over SSH.
+
+The only reliable signal is **pane content** — what the human sees. tmux metadata like `#{pane_current_command}` reports the local process and cannot see through SSH (it would report `ssh`, not the remote shell). Therefore:
+
+- All pane interaction uses only `tmux send-keys` and `tmux capture-pane`
+- Detection and probing must work through SSH — if it fails when the pane is an SSH session, it's broken
+- Treat tmux as a transport to the pane, not a source of truth about what's running in it
+
 ## Key Design Decisions
 
 1. **tmux is the foundation** - don't reinvent tmux
-2. **Human terminal is primary** - agent is a guest, not the owner
-3. **`tb run` behaves like a command wrapper** - stdout/exit status work normally
-4. **Progressive disclosure** - each command only hints at the next logical step
-5. **Multi-session support** - session IDs like `a7x` allow multiple bridges
-6. **Background tasks** - up to 6 concurrent tasks in split panes
+2. **Pane content is the source of truth** - `tb` must work through SSH, so shell detection uses only observable pane behavior (`send-keys` + `capture-pane`), never local process metadata
+3. **Human terminal is primary** - agent is a guest, not the owner
+4. **`tb run` behaves like a command wrapper** - stdout/exit status work normally
+5. **Progressive disclosure** - each command only hints at the next logical step
+6. **Multi-session support** - session IDs like `a7x` allow multiple bridges
+7. **Background tasks** - up to 6 concurrent tasks in split panes
 
 ## Building and Testing
 
@@ -143,28 +154,21 @@ Commands use `--target TARGET` / `-t`. Simple names first try a literal tmux ses
 Format: `___START_$id___` and `___END_${id}_$exit_status___` where `$id` is random.
 
 ### Shell-adaptive wrappers
-`tb run` uses direct marker wrappers only when the target shell is confidently identified as one of the tested cases for this phase:
+`tb run` uses direct marker wrappers only when the agent explicitly declares the shell with `--shell`:
 
 - fish: `echo ___START_xxx___; <cmd>; echo ___END_xxx_{$status}___`
 - bash / `sh`: `echo ___START_xxx___; <cmd>; echo ___END_xxx_$?___`
 - unknown / not confident: fallback to `sh -c '...'`
 
-This keeps the existing POSIX fallback while removing one quoting layer for confident fish, bash, and `sh` targets.
-
-The confidence policy is intentionally split by responsibility:
-
-- `tb run` starts from tmux's `#{pane_current_command}` but also checks that the pane still looks idle / prompt-like before using a direct wrapper. If tmux reports `fish`, `bash`, or `sh` but the pane looks busy (for example a startup command is still occupying the pane), `tb run` falls back to `sh -c`.
-- `tb info` starts from the same foreground-process signal but also sends a small live probe before reporting `confident`, because its job is to give the agent richer assessment context.
-
-This difference is intentional, not a bug.
+The agent learns the shell from `tb info` (which probes via observable pane behavior only), then passes `--shell fish` (or `bash`, `sh`) to `tb run`. Without `--shell`, `tb run` uses the conservative `sh -c` fallback.
 
 ### Quoting principles
 The human sees every command typed into their terminal. Quoting must be **correct** and **minimal** — only add quotes/escapes that are strictly necessary.
 
-- **Single-arg mode (shell script):** A single argument after `--` is treated as shell code for the active shell when `tb` knows the shell confidently; otherwise it falls back to `sh -c '...'`. **Never** add your own `bash -c` wrapper just to get a shell script mode — that creates a redundant quoting layer. If you specifically want POSIX semantics in a fish pane, send `sh -c '...'` explicitly.
+- **Single-arg mode (shell script):** A single argument after `--` is treated as shell code for the declared shell when `--shell` is given; otherwise it falls back to `sh -c '...'`. **Never** add your own `bash -c` wrapper just to get a shell script mode — that creates a redundant quoting layer. If you specifically want POSIX semantics in a fish pane, send `sh -c '...'` explicitly.
   - ✅ `tb run -- 'echo "hello"; ls -la'`
   - ❌ `tb run -- bash -c 'echo "hello"; ls -la'`
-- **Multi-arg mode:** Multiple arguments after `--` are each quoted individually with smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`). This also goes direct for confident fish, bash, and `sh` targets, and falls back to `sh -c` otherwise.
+- **Multi-arg mode:** Multiple arguments after `--` are each quoted individually with smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`). This also goes direct when `--shell` is given, and falls back to `sh -c` otherwise.
 - Markers (`___START_xxx___`) are alphanumeric + underscores — never quote them
 
 ### Timeout behavior
