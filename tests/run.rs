@@ -449,20 +449,9 @@ mod run_dry_run_shell_quoting {
     }
 
     #[test]
-    fn known_fish_target_uses_direct_fish_markers_in_dry_run() {
-        let session = TestSession::new();
-        session.enter_shell("fish");
-
-        session
-            .tb_command()
-            .args([
-                "run",
-                "--target",
-                session.target(),
-                "--dry-run",
-                "--",
-                "echo hi",
-            ])
+    fn shell_flag_fish_uses_direct_fish_markers_in_dry_run() {
+        tb_cmd()
+            .args(["run", "--shell", "fish", "--dry-run", "--", "echo hi"])
             .assert()
             .success()
             .stdout(predicate::eq(
@@ -471,20 +460,9 @@ mod run_dry_run_shell_quoting {
     }
 
     #[test]
-    fn known_bash_target_uses_direct_posix_markers_in_dry_run() {
-        let session = TestSession::new();
-        session.enter_shell("bash");
-
-        session
-            .tb_command()
-            .args([
-                "run",
-                "--target",
-                session.target(),
-                "--dry-run",
-                "--",
-                "echo hi",
-            ])
+    fn shell_flag_bash_uses_direct_posix_markers_in_dry_run() {
+        tb_cmd()
+            .args(["run", "--shell", "bash", "--dry-run", "--", "echo hi"])
             .assert()
             .success()
             .stdout(predicate::eq(
@@ -493,20 +471,9 @@ mod run_dry_run_shell_quoting {
     }
 
     #[test]
-    fn known_sh_target_uses_direct_posix_markers_in_dry_run() {
-        let session = TestSession::new();
-        session.enter_shell("sh");
-
-        session
-            .tb_command()
-            .args([
-                "run",
-                "--target",
-                session.target(),
-                "--dry-run",
-                "--",
-                "echo hi",
-            ])
+    fn shell_flag_sh_uses_direct_posix_markers_in_dry_run() {
+        tb_cmd()
+            .args(["run", "--shell", "sh", "--dry-run", "--", "echo hi"])
             .assert()
             .success()
             .stdout(predicate::eq(
@@ -515,31 +482,9 @@ mod run_dry_run_shell_quoting {
     }
 
     #[test]
-    fn unknown_target_keeps_sh_c_wrapper_in_dry_run() {
+    fn no_shell_uses_sh_c_wrapper_in_dry_run_even_for_fish_target() {
         let session = TestSession::new();
-        session.send_main_pane_command("sleep 30");
-        session.wait_for_current_command("sleep", Duration::from_secs(10));
-
-        session
-            .tb_command()
-            .args([
-                "run",
-                "--target",
-                session.target(),
-                "--dry-run",
-                "--",
-                "echo hi",
-            ])
-            .assert()
-            .success()
-            .stdout(predicate::eq(
-                expected_single_arg_dry_run("echo hi").into_bytes(),
-            ));
-    }
-
-    #[test]
-    fn startup_command_without_prompt_keeps_sh_c_wrapper_in_dry_run() {
-        let session = TestSession::new_with_startup_command(Some("sleep 999"));
+        session.enter_shell("fish");
 
         session
             .tb_command()
@@ -563,20 +508,7 @@ mod run_shell_adaptive_execution {
     use super::*;
 
     #[test]
-    fn known_fish_single_arg_uses_active_shell_semantics() {
-        let session = TestSession::new();
-        session.enter_shell("fish");
-
-        session
-            .tb_command()
-            .args(["run", "--target", session.target(), "--", "math 1 + 2"])
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("3"));
-    }
-
-    #[test]
-    fn known_fish_single_arg_allows_explicit_sh_escape_hatch() {
+    fn shell_flag_fish_single_arg_uses_active_shell_semantics() {
         let session = TestSession::new();
         session.enter_shell("fish");
 
@@ -584,6 +516,29 @@ mod run_shell_adaptive_execution {
             .tb_command()
             .args([
                 "run",
+                "--shell",
+                "fish",
+                "--target",
+                session.target(),
+                "--",
+                "math 1 + 2",
+            ])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("3"));
+    }
+
+    #[test]
+    fn shell_flag_fish_single_arg_allows_explicit_sh_escape_hatch() {
+        let session = TestSession::new();
+        session.enter_shell("fish");
+
+        session
+            .tb_command()
+            .args([
+                "run",
+                "--shell",
+                "fish",
                 "--target",
                 session.target(),
                 "--",
@@ -595,7 +550,7 @@ mod run_shell_adaptive_execution {
     }
 
     #[test]
-    fn known_fish_multi_arg_preserves_argument_boundaries_directly() {
+    fn shell_flag_fish_multi_arg_preserves_argument_boundaries_directly() {
         let session = TestSession::new();
         session.enter_shell("fish");
 
@@ -603,6 +558,8 @@ mod run_shell_adaptive_execution {
             .tb_command()
             .args([
                 "run",
+                "--shell",
+                "fish",
                 "--target",
                 session.target(),
                 "--",
@@ -620,7 +577,7 @@ mod run_shell_adaptive_execution {
     }
 
     #[test]
-    fn known_bash_direct_path_preserves_output_and_exit_status() {
+    fn shell_flag_bash_direct_path_preserves_output_and_exit_status() {
         let session = TestSession::new();
         session.enter_shell("bash");
 
@@ -628,6 +585,8 @@ mod run_shell_adaptive_execution {
             .tb_command()
             .args([
                 "run",
+                "--shell",
+                "bash",
                 "--target",
                 session.target(),
                 "--",
@@ -640,7 +599,7 @@ mod run_shell_adaptive_execution {
     }
 
     #[test]
-    fn known_sh_direct_path_preserves_output_and_exit_status() {
+    fn shell_flag_sh_direct_path_preserves_output_and_exit_status() {
         let session = TestSession::new();
         session.enter_shell("sh");
 
@@ -648,6 +607,8 @@ mod run_shell_adaptive_execution {
             .tb_command()
             .args([
                 "run",
+                "--shell",
+                "sh",
                 "--target",
                 session.target(),
                 "--",
@@ -660,11 +621,9 @@ mod run_shell_adaptive_execution {
     }
 
     #[test]
-    fn unknown_target_fallback_executes_via_sh_c() {
+    fn no_shell_fallback_executes_via_sh_c_in_fish_pane() {
         let session = TestSession::new();
-        session.send_main_pane_command("bash -c 'exec -a mystery sh'");
-        session.wait_for_current_command("mystery", Duration::from_secs(10));
-        session.wait_for_shell_ready();
+        session.enter_shell("fish");
 
         session
             .tb_command()
@@ -673,12 +632,10 @@ mod run_shell_adaptive_execution {
                 "--target",
                 session.target(),
                 "--",
-                "printf '%s\\n' fallback-output; sh -c 'exit 29'",
+                "test -z \"$version\"",
             ])
             .assert()
-            .failure()
-            .code(29)
-            .stdout(predicate::str::contains("fallback-output"));
+            .success();
     }
 }
 
