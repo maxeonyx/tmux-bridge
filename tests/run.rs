@@ -663,7 +663,20 @@ mod run_timeouts {
             .assert()
             .failure()
             .code(124)
-            .stderr(predicate::str::contains("Timeout"));
+            .stderr(predicate::str::contains(
+                "Timeout: no output for 2 seconds.",
+            ))
+            .stderr(predicate::str::contains(&format!(
+                "tb check -t {}",
+                session.target()
+            )))
+            .stderr(predicate::str::contains(
+                "syntax error before markers completed",
+            ))
+            .stderr(predicate::str::contains("slow/silent command"))
+            .stderr(predicate::str::contains(
+                "increase --timeout / emit progress output",
+            ));
     }
 
     #[test]

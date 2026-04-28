@@ -382,7 +382,9 @@ fn cmd_run(options: RunOptions) -> Result<(), String> {
         return Ok(());
     }
 
+    let check_target = target.clone();
     let tmux_target = resolve_tmux_target(target)?;
+    let check_target = check_target.unwrap_or_else(|| tmux_target.clone());
 
     // Generate unique marker ID
     let marker_id: String = {
@@ -456,6 +458,11 @@ fn cmd_run(options: RunOptions) -> Result<(), String> {
         if last_output_time.elapsed().as_secs() >= timeout {
             kill_running_command(&tmux_target);
             eprintln!("Timeout: no output for {} seconds.", timeout);
+            eprintln!("Check the pane first: tb check -t {}", check_target);
+            eprintln!(
+                "This may be a syntax error before markers completed, or a slow/silent command."
+            );
+            eprintln!("Fix the command, or increase --timeout / emit progress output.");
             std::process::exit(124);
         }
     }
