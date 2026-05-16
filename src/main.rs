@@ -681,11 +681,22 @@ fn build_fallback_shell_command(command_text: &str, marker_id: &str) -> String {
         marker_id, command_text, marker_id
     );
 
-    // Wrap in single quotes for outer shell - prevents variable expansion
-    // Single quotes in inner_script need escaping as '\''
-    let escaped_script = inner_script.replace('\'', "'\\''");
+    // Transport the inner script through the active shell as an octal-escaped
+    // byte stream, then let a fresh POSIX shell parse it. This keeps fallback
+    // behavior consistent across fish and POSIX shells without corrupting the
+    // exact script text that the inner `sh` should see.
+    let encoded_script = encode_shell_bytes(&inner_script);
 
-    format!("sh -c '{}'", escaped_script)
+    format!("printf '%b' '{}' | sh", encoded_script)
+}
+
+fn encode_shell_bytes(s: &str) -> String {
+    let mut encoded = String::with_capacity(s.len() * 4);
+    for byte in s.bytes() {
+        encoded.push('\\');
+        encoded.push_str(&format!("{:03o}", byte));
+    }
+    encoded
 }
 
 fn shell_command_text(command: &[String]) -> String {
@@ -974,15 +985,18 @@ fn is_process_running(pane_content: &str) -> bool {
     // This is a heuristic and won't be perfect
     let last_line = lines.last().unwrap_or(&"");
 
-    // Common prompt endings: $, #, >, %
-    // Also check for user@host patterns
-    let prompt_patterns = ["$ ", "> ", "% ", "# "];
-    let has_prompt_ending = prompt_patterns.iter().any(|p| last_line.ends_with(p))
-        || last_line.contains("@")
-            && (last_line.ends_with("$")
-                || last_line.ends_with(">")
-                || last_line.ends_with("%")
-                || last_line.ends_with("#"));
+    // Prompts may be a bare character (`>` in fish), end with a prompt
+    // character, or include path/user context before it.
+    let trimmed = last_line.trim_end();
+    let has_prompt_ending = matches!(trimmed, "$" | "#" | ">" | "%")
+        || trimmed.ends_with("$ ")
+        || trimmed.ends_with("# ")
+        || trimmed.ends_with("> ")
+        || trimmed.ends_with("% ")
+        || trimmed.ends_with('$')
+        || trimmed.ends_with('#')
+        || trimmed.ends_with('>')
+        || trimmed.ends_with('%');
 
     !has_prompt_ending
 }

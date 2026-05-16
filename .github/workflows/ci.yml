@@ -28,6 +28,14 @@ jobs:
 
       - name: Enforce version bump on new main commits
         run: |
+          code_paths='Cargo.toml Cargo.lock src tests scripts docs'
+
+          if ! git diff --quiet HEAD^ HEAD -- $code_paths; then
+            code_changed=true
+          else
+            code_changed=false
+          fi
+
           tag="$(python - <<'PY'
           import tomllib
 
@@ -38,13 +46,13 @@ jobs:
           PY
           )"
 
-          if git rev-parse --verify --quiet "${tag}^{commit}" >/dev/null; then
+          if [ "$code_changed" = true ] && git rev-parse --verify --quiet "${tag}^{commit}" >/dev/null; then
             tag_commit="$(git rev-parse "${tag}^{commit}")"
             head_commit="$(git rev-parse HEAD)"
 
             if [ "$tag_commit" != "$head_commit" ]; then
               echo "Cargo.toml version ${tag#v} already has git tag $tag at $tag_commit, but HEAD is $head_commit."
-              echo "Bump package.version before pushing new main commits so each release stays tied to one commit."
+              echo "Code changed on main without a new version bump. Every code change should produce a new release."
               exit 1
             fi
           fi

@@ -66,7 +66,8 @@ mod info_shell_assessment {
 
     #[test]
     fn pane_probing_detects_fish_through_wrapper_process() {
-        let session = shell_through_python_wrapper_session(&["fish"]);
+        let session = TestSession::new();
+        session.enter_shell("fish");
 
         session
             .tb_command()
