@@ -1,8 +1,9 @@
 mod common;
 
-use common::TestSession;
+use common::{TestSession, wait_for_pane_content};
 use predicates::prelude::*;
 use std::fs;
+use std::time::Duration;
 
 fn python_string_literal(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
@@ -56,6 +57,17 @@ fn shell_through_python_wrapper_session(argv: &[&str]) -> TestSession {
 
     let command = format!("exec python3 {}", path.display());
     let session = TestSession::new_with_startup_command(Some(&command));
+    wait_for_pane_content(
+        &session.tmux_name(),
+        "wrapped shell prompt",
+        Duration::from_secs(10),
+        |content| {
+            content.lines().any(|line| {
+                let trimmed = line.trim_end();
+                trimmed.ends_with('$') || trimmed.ends_with('#') || trimmed.ends_with('>')
+            })
+        },
+    );
     session.wait_for_shell_ready();
     let _ = fs::remove_file(path);
     session
