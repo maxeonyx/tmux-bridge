@@ -604,7 +604,9 @@ fn probe_marker_command(marker: &str) -> String {
 }
 
 fn wait_for_probe_signature(tmux_target: &str, marker: &str) -> Result<Option<ShellKind>, String> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    // Interactive shells wrapped behind another foreground process can take a
+    // little longer to repaint the probe line on busy CI runners.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let poll_interval = std::time::Duration::from_millis(100);
     let marker_prefix = format!("{}|", marker);
 
