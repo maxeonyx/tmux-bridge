@@ -117,6 +117,11 @@ fn last_nonempty_line(content: &str) -> Option<&str> {
     content.lines().rev().find(|line| !line.trim().is_empty())
 }
 
+fn line_contains_ready_marker(line: &str, marker: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed == marker || trimmed.ends_with(&format!(" {}", marker))
+}
+
 fn prompt_chars_for_shell(shell: &str) -> Option<&'static [char]> {
     match shell {
         "fish" => Some(&['>']),
@@ -341,7 +346,11 @@ impl TestSession {
             &self.tmux_name(),
             "shell ready marker",
             Duration::from_secs(10),
-            |content| content.lines().any(|line| line.trim() == marker),
+            |content| {
+                content
+                    .lines()
+                    .any(|line| line_contains_ready_marker(line, &marker))
+            },
         );
     }
 
