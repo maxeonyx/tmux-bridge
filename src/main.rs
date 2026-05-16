@@ -568,7 +568,7 @@ fn shell_kind_from_argv0(argv0: &str) -> ShellKind {
 
     match shell_name {
         "bash" => ShellKind::Bash,
-        "sh" => ShellKind::Sh,
+        "sh" | "dash" => ShellKind::Sh,
         _ => ShellKind::Unknown,
     }
 }
