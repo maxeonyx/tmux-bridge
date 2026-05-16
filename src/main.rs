@@ -616,8 +616,12 @@ fn wait_for_probe_signature(tmux_target: &str, marker: &str) -> Result<Option<Sh
         let pane_content = String::from_utf8_lossy(&output.stdout);
 
         for line in pane_content.lines() {
-            if let Some(signature) = line.trim().strip_prefix(&marker_prefix) {
-                return Ok(parse_probe_signature(signature));
+            // Ignore echoed or wrapped command text that happens to contain the
+            // marker literal before the shell prints the expanded probe output.
+            if let Some((_, signature)) = line.trim().split_once(&marker_prefix)
+                && let Some(kind) = parse_probe_signature(signature)
+            {
+                return Ok(Some(kind));
             }
         }
     }
