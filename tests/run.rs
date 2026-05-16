@@ -340,10 +340,27 @@ mod run_dry_run_shell_quoting {
     }
 
     fn expected_single_arg_dry_run(script: &str) -> String {
-        format!(
-            "sh -c 'echo ___START_dryrunid___; {}; echo ___END_dryrunid_$?___'\n",
-            script.replace('\'', "'\\''")
-        )
+        expected_fallback_dry_run(&format!(
+            "echo ___START_dryrunid___; {}; echo ___END_dryrunid_$?___",
+            script
+        ))
+    }
+
+    fn expected_fallback_dry_run(inner_script: &str) -> String {
+        let inner_script = format!("{}", inner_script);
+        let encoded = inner_script
+            .bytes()
+            .map(|byte| format!(r#"\{:03o}"#, byte))
+            .collect::<String>();
+
+        format!("printf '%b' '{}' | sh\n", encoded)
+    }
+
+    fn expected_multi_arg_fallback_dry_run(command_text: &str) -> String {
+        expected_fallback_dry_run(&format!(
+            "echo ___START_dryrunid___; {}; echo ___END_dryrunid_$?___",
+            command_text
+        ))
     }
 
     fn expected_direct_posix_dry_run(script: &str) -> String {
@@ -376,7 +393,7 @@ mod run_dry_run_shell_quoting {
     fn multi_arg_uses_bare_form_for_safe_characters() {
         assert_dry_run_exact(
             &["echo", "path/to:file@host=1+50%"],
-            "sh -c 'echo ___START_dryrunid___; echo path/to:file@host=1+50%; echo ___END_dryrunid_$?___'\n",
+            &expected_multi_arg_fallback_dry_run("echo path/to:file@host=1+50%"),
         );
     }
 
@@ -384,7 +401,7 @@ mod run_dry_run_shell_quoting {
     fn multi_arg_uses_double_quotes_for_spaces() {
         assert_dry_run_exact(
             &["echo", "two words"],
-            "sh -c 'echo ___START_dryrunid___; echo \"two words\"; echo ___END_dryrunid_$?___'\n",
+            &expected_multi_arg_fallback_dry_run("echo \"two words\""),
         );
     }
 
@@ -392,7 +409,7 @@ mod run_dry_run_shell_quoting {
     fn multi_arg_uses_double_quotes_for_metacharacters_without_symbols() {
         assert_dry_run_exact(
             &["echo", "*.rs"],
-            "sh -c 'echo ___START_dryrunid___; echo \"*.rs\"; echo ___END_dryrunid_$?___'\n",
+            &expected_multi_arg_fallback_dry_run("echo \"*.rs\""),
         );
     }
 
@@ -400,10 +417,7 @@ mod run_dry_run_shell_quoting {
     fn multi_arg_uses_single_quotes_for_literal_symbols_without_single_quotes() {
         assert_dry_run_exact(
             &["echo", "$HOME"],
-            concat!(
-                r#"sh -c 'echo ___START_dryrunid___; echo '\''$HOME'\''; echo ___END_dryrunid_$?___'"#,
-                "\n"
-            ),
+            &expected_multi_arg_fallback_dry_run(r#"echo '$HOME'"#),
         );
     }
 
@@ -411,10 +425,7 @@ mod run_dry_run_shell_quoting {
     fn multi_arg_falls_back_to_double_quotes_for_single_quote_and_space() {
         assert_dry_run_exact(
             &["echo", "it's ok"],
-            concat!(
-                r#"sh -c 'echo ___START_dryrunid___; echo "it'\''s ok"; echo ___END_dryrunid_$?___'"#,
-                "\n"
-            ),
+            &expected_multi_arg_fallback_dry_run(r#"echo "it's ok""#),
         );
     }
 
@@ -422,10 +433,7 @@ mod run_dry_run_shell_quoting {
     fn multi_arg_falls_back_to_double_quotes_with_symbol_escaping() {
         assert_dry_run_exact(
             &["echo", "it's $HOME"],
-            concat!(
-                r#"sh -c 'echo ___START_dryrunid___; echo "it'\''s \$HOME"; echo ___END_dryrunid_$?___'"#,
-                "\n"
-            ),
+            &expected_multi_arg_fallback_dry_run(r#"echo "it's \$HOME""#),
         );
     }
 
