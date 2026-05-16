@@ -160,8 +160,8 @@ def check_git_history() -> list[str]:
     return errors
 
 
-def run_cargo_test() -> dict[str, bool]:
-    """Run cargo test and parse results. Returns {test_name: passed}."""
+def run_cargo_test() -> tuple[dict[str, bool], str]:
+    """Run cargo test and return ({test_name: passed}, raw output)."""
     result = subprocess.run(
         ["cargo", "test", "--no-fail-fast", "--", "--test-threads=1"],
         capture_output=True,
@@ -181,7 +181,7 @@ def run_cargo_test() -> dict[str, bool]:
         if status != "ignored":
             tests[name] = status == "ok"
 
-    return tests
+    return tests, output
 
 
 def run_checks() -> dict[str, bool]:
@@ -275,7 +275,7 @@ def main():
     print("=" * 60)
 
     # Run all tests and checks
-    test_results = run_cargo_test()
+    test_results, test_output = run_cargo_test()
     check_results = run_checks()
 
     # Load saved status
@@ -346,6 +346,15 @@ def main():
         print("RATCHET FAILED:")
         for error in all_errors:
             print(f"  ❌ {error}")
+        failing_tests = [name for name, passed in test_results.items() if not passed]
+        if failing_tests:
+            print()
+            print("Failing tests:")
+            for name in failing_tests:
+                print(f"  - {name}")
+            print()
+            print("cargo test output:")
+            print(test_output.rstrip())
         print("=" * 60)
         return 1
     else:
