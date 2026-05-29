@@ -24,6 +24,7 @@
     "done_errors::fails_for_nonexistent_task": "passing",
     "done_errors::fails_without_target": "passing",
     "done_with_finished_tasks::can_close_already_finished_task": "passing",
+    "help_examples": "pending",
     "info_shell_assessment::pane_probing_detects_bash_through_wrapper_process": "passing",
     "info_shell_assessment::pane_probing_detects_fish_through_wrapper_process": "passing",
     "info_shell_assessment::pane_probing_detects_sh_through_wrapper_process": "passing",
