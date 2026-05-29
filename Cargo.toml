@@ -11,6 +11,7 @@ name = "tb"
 path = "src/main.rs"
 
 [dependencies]
+agent-tools-updater = { path = "../../crates/agent-tools-updater" }
 clap = { version = "4", features = ["derive"] }
 rand = "0.8"
 
