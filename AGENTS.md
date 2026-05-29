@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This document is for AI coding assistants working on the tmux-bridge codebase.
+This document is for AI coding assistants working on the tmux-bridge codebase. This tool is developed from the [agent-tools workspace](https://github.com/maxeonyx/agent-tools); clone and develop there, not from this repo directly.
 
 ## Project Overview
 
