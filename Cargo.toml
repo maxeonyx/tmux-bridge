@@ -16,5 +16,6 @@ rand = "0.8"
 
 [dev-dependencies]
 assert_cmd = "2"
+help-test = { path = "../../crates/help-test" }
 predicates = "3"
 tempfile = "3"

@@ -8,6 +8,12 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::process::Command;
 
+const TOP_LEVEL_LONG_ABOUT: &str = "A tmux bridge for AI agents to run commands in interactive terminals\n\nWorkflow: human runs `tb start`, agent uses `tb info` -> `tb run` / `tb launch` / `tb check` / `tb done`.";
+
+const RUN_AFTER_HELP: &str = "Examples:\n  $ tb run --target a7x -- ls -la\n  $ tb run --target a7x --shell bash -- 'echo hello && pwd'";
+
+const LAUNCH_AFTER_HELP: &str = "Examples:\n  $ tb launch --target a7x -- npm run dev";
+
 /// Returns the tmux session prefix for this process.
 ///
 /// TB_SESSION_PREFIX is primarily for test isolation. TB_TEST_MODE keeps tests
@@ -38,6 +44,7 @@ fn tmux_session_name(session_id: &str) -> String {
 #[derive(Parser)]
 #[command(name = "tb")]
 #[command(about = "A tmux bridge for AI agents to run commands in interactive terminals")]
+#[command(long_about = TOP_LEVEL_LONG_ABOUT)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -54,12 +61,13 @@ enum Commands {
     },
 
     /// Run a command synchronously and wait for output (agent uses this)
+    #[command(after_help = RUN_AFTER_HELP)]
     Run {
         /// Tmux target (session, session:window.pane, or %pane)
         #[arg(short, long)]
         target: Option<String>,
 
-        /// Shell to use for direct marker wrappers
+        /// Shell syntax of the target pane (detect with `tb info`)
         #[arg(long, value_enum)]
         shell: Option<RunShell>,
 
@@ -96,6 +104,7 @@ enum Commands {
     },
 
     /// Launch a background task in a split pane (agent uses this)
+    #[command(after_help = LAUNCH_AFTER_HELP)]
     Launch {
         /// Tmux target (session, session:window.pane, or %pane)
         #[arg(short, long)]
@@ -413,7 +422,26 @@ fn cmd_run(options: RunOptions) -> Result<(), String> {
         return Err("Failed to send command to tmux.".to_string());
     }
 
-    // Poll for output with timeouts
+    poll_for_completion(
+        &tmux_target,
+        &check_target,
+        &start_marker,
+        &end_marker_prefix,
+        (timeout, max_time),
+        (first, last),
+    )
+}
+
+fn poll_for_completion(
+    tmux_target: &str,
+    check_target: &str,
+    start_marker: &str,
+    end_marker_prefix: &str,
+    timeouts: (u64, u64),
+    output_window: (usize, usize),
+) -> Result<(), String> {
+    let (timeout, max_time) = timeouts;
+    let (first, last) = output_window;
     let start_time = std::time::Instant::now();
     let mut last_output_time = start_time;
     let mut last_output_len = 0;
@@ -422,24 +450,17 @@ fn cmd_run(options: RunOptions) -> Result<(), String> {
     loop {
         std::thread::sleep(poll_interval);
 
-        // Check max-time timeout
         if start_time.elapsed().as_secs() >= max_time {
-            kill_running_command(&tmux_target);
+            kill_running_command(tmux_target);
             eprintln!("Timeout: max-time of {} seconds exceeded.", max_time);
             std::process::exit(124);
         }
 
-        // Capture pane content
-        let output = capture_pane_scrollback(&tmux_target)?;
-
+        let output = capture_pane_scrollback(tmux_target)?;
         let pane_content = String::from_utf8_lossy(&output.stdout);
 
-        // Check for end marker
-        if let Some(exit_code) = find_exit_code(&pane_content, &end_marker_prefix) {
-            // Extract output between markers
-            let cmd_output = extract_output(&pane_content, &start_marker, &end_marker_prefix);
-
-            // Truncate and print output
+        if let Some(exit_code) = find_exit_code(&pane_content, end_marker_prefix) {
+            let cmd_output = extract_output(&pane_content, start_marker, end_marker_prefix);
             print_output(&cmd_output, first, last);
 
             if exit_code != 0 {
@@ -448,15 +469,13 @@ fn cmd_run(options: RunOptions) -> Result<(), String> {
             return Ok(());
         }
 
-        // Check for new output (for no-output timeout)
         if pane_content.len() != last_output_len {
             last_output_len = pane_content.len();
             last_output_time = std::time::Instant::now();
         }
 
-        // Check no-output timeout
         if last_output_time.elapsed().as_secs() >= timeout {
-            kill_running_command(&tmux_target);
+            kill_running_command(tmux_target);
             eprintln!("Timeout: no output for {} seconds.", timeout);
             eprintln!("Check the pane first: tb check -t {}", check_target);
             eprintln!(
