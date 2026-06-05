@@ -1,2 +1,9 @@
 /target
 docs/demo.tape
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# Direnv
+.direnv
