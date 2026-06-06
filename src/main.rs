@@ -6,6 +6,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use rand::Rng;
 use std::collections::HashSet;
+use std::env;
 use std::process::Command;
 
 const TOP_LEVEL_LONG_ABOUT: &str = "A tmux bridge for AI agents to run commands in interactive terminals\n\nWorkflow: human runs `tb start`, agent uses `tb info` -> `tb run` / `tb launch` / `tb check` / `tb done`.";
@@ -145,6 +146,10 @@ enum Commands {
 }
 
 fn main() {
+    if try_handle_version_request() {
+        return;
+    }
+
     let cli = Cli::parse();
 
     let result = match cli.command {
@@ -183,6 +188,38 @@ fn main() {
         eprintln!("{}", e);
         std::process::exit(1);
     }
+}
+
+fn try_handle_version_request() -> bool {
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    if is_version_json_request(&args) {
+        println!(
+            "{{\"package\":\"tb\",\"binary\":\"tb\",\"version\":\"{}\"}}",
+            env!("CARGO_PKG_VERSION")
+        );
+        return true;
+    }
+
+    if is_version_request(&args) {
+        println!("tb {}", env!("CARGO_PKG_VERSION"));
+        return true;
+    }
+
+    false
+}
+
+fn is_version_request(args: &[String]) -> bool {
+    args.len() == 1 && matches!(args[0].as_str(), "--version" | "-V")
+}
+
+fn is_version_json_request(args: &[String]) -> bool {
+    args.iter()
+        .any(|arg| matches!(arg.as_str(), "--version" | "-V"))
+        && args.iter().any(|arg| arg == "--json")
+        && args
+            .iter()
+            .all(|arg| matches!(arg.as_str(), "--version" | "-V" | "--json"))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

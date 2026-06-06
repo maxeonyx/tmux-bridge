@@ -99,6 +99,7 @@
     "start::sequential_sessions_get_different_first_letters": "passing",
     "start::session_id_format_is_letter_plus_two_alphanumeric": "passing",
     "start::uses_tb_prefix_when_test_mode_not_set": "passing",
-    "start::uses_tbtest_prefix_when_test_mode_set": "passing"
+    "start::uses_tbtest_prefix_when_test_mode_set": "passing",
+    "version_json_flag_prints_machine_readable_version": "pending"
   }
 }
