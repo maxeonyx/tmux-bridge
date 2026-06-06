@@ -19,4 +19,5 @@ rand = "0.8"
 assert_cmd = "2"
 help-test = { path = "../../crates/help-test" }
 predicates = "3"
+serde_json = "1"
 tempfile = "3"
