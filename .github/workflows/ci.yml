@@ -26,6 +26,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Prepare workspace path dependencies
+        run: |
+          mkdir -p ../../crates
+          git clone --depth=1 https://github.com/maxeonyx/agent-tools ../../agent-tools-deps
+          cp -R ../../agent-tools-deps/crates/agent-tools-updater ../../crates/agent-tools-updater
+          cp -R ../../agent-tools-deps/crates/help-test ../../crates/help-test
+
       - name: Enforce version bump on new main commits
         run: |
           code_paths='Cargo.toml Cargo.lock src tests scripts docs'
@@ -99,6 +106,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Prepare workspace path dependencies
+        run: |
+          mkdir -p ../../crates
+          git clone --depth=1 https://github.com/maxeonyx/agent-tools ../../agent-tools-deps
+          cp -R ../../agent-tools-deps/crates/agent-tools-updater ../../crates/agent-tools-updater
+          cp -R ../../agent-tools-deps/crates/help-test ../../crates/help-test
 
       - uses: dtolnay/rust-toolchain@stable
         with:
