@@ -78,6 +78,18 @@ Tests are real E2E tests using real tmux sessions. The key principle: **never us
 
 When adding new tests: use these helpers instead of `thread::sleep`. If a new wait pattern is needed, add it to `tests/common/mod.rs`.
 
+### TODO: test runs leak tmux sessions on crash/interrupt
+
+tb test runs leak tmux sessions (prefix `tb-help-*` and other `tb-*` test prefixes) whenever a test crashes, times out, or an agent interrupts the run. The harness cleans up on the happy path but not when a run is killed mid-flight, so leaked sessions pile up and confuse later runs. This is a recurring, real annoyance (e.g. left six `tb-help-run-*` / `tb-help-launch-*` sessions alive after one interrupted ratchet run).
+
+**TODO — make cleanup crash-proof:** the test harness should reap any session matching its scoped prefix even after an aborted/panicking run (e.g. a pre-run sweep of stale test-prefixed sessions, and/or a more robust drop/`atexit`-style guard). Until that's fixed, manually sweep after ANY `cargo ratchet` / `cargo nextest` run:
+
+```bash
+tmux ls 2>/dev/null | grep -oE '^tb-[^:]*' | while read s; do tmux kill-session -t "$s"; done
+```
+
+Verify none remain with `tmux ls`.
+
 ### Test Ratchet
 
 The project uses a test ratchet system (`scripts/ratchet.py`) that enforces:
