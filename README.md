@@ -53,13 +53,13 @@ tb done --target a7x t1
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `tb start` | Human starts session, displays ID |
-| `tb run` | Run command synchronously, wait for output |
-| `tb launch` | Start background task in split pane |
-| `tb check` | Check background task status/output |
-| `tb done` | Close background task pane |
+| Command     | Purpose                                    |
+| ----------- | ------------------------------------------ |
+| `tb start`  | Human starts session, displays ID          |
+| `tb run`    | Run command synchronously, wait for output |
+| `tb launch` | Start background task in split pane        |
+| `tb check`  | Check background task status/output        |
+| `tb done`   | Close background task pane                 |
 
 ## Agent Skill
 
