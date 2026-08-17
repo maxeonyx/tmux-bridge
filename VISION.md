@@ -41,6 +41,7 @@ The human's terminal must feel completely normal. No special modes, no restricti
 ### Clean agent interface
 
 `tb run` behaves like a normal command wrapper:
+
 - Stdout → stdout
 - Exit status → exit status
 - Blocks until complete
@@ -106,6 +107,7 @@ Background tasks split the targeted pane directly.
 ### Why tmux?
 
 Battle-tested. Handles:
+
 - Multiple clients attaching to same session
 - Window resizing
 - Signal handling
@@ -129,10 +131,12 @@ Then parses the output between markers via `tmux capture-pane`.
 ### Timeout handling
 
 Two timeouts protect against hung commands:
+
 - **No-output timeout (default 10s)**: Nothing printed for N seconds
 - **Overall timeout (default 120s)**: Total elapsed time
 
 When triggered:
+
 1. SIGINT (Ctrl+C)
 2. Wait 3 seconds
 3. SIGQUIT (Ctrl+\)
@@ -152,6 +156,7 @@ Tell your agent:
 ```
 
 Options:
+
 - `--session ID` - Use specific ID instead of auto-generating
 
 ### tb run
@@ -171,6 +176,7 @@ $ tb run --target %42 -- 'grep -r "TODO" src/ | wc -l'
 A single argument after `--` is treated as a shell script — `tb` wraps it in `sh -c` automatically. **Do not** wrap in `bash -c` yourself; that adds an unnecessary quoting layer.
 
 Options:
+
 - `--target TARGET` / `-t` - Tmux target to use
 - `--timeout N` - No-output timeout in seconds (default: 10)
 - `--max-time N` - Overall timeout in seconds (default: 120)
@@ -188,6 +194,7 @@ Check status with: tb check --target my-session:1.2 t1
 ```
 
 Options:
+
 - `--target TARGET` / `-t` - Tmux target to use
 
 ### tb check
@@ -209,6 +216,7 @@ $ tb check --target my-session:1.2
 ```
 
 Options:
+
 - `--target TARGET` / `-t` - Tmux target to use
 - `--first N` - Lines from start to show (default: 50)
 - `--last N` - Lines from end to show (default: 50)
@@ -225,11 +233,13 @@ Closed task t1.
 ## Implementation
 
 Single Rust binary using:
+
 - `clap` for CLI parsing
 - Direct `tmux` command invocation via `std::process::Command`
 - No async runtime needed (simple blocking I/O)
 
 Distribution:
+
 - GitHub releases with prebuilt binaries (Linux, macOS)
 - Single binary, no dependencies beyond tmux
 

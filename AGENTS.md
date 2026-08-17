@@ -9,7 +9,7 @@ This document is for AI coding assistants working on the tmux-bridge codebase. T
 ## Commands
 
 | Command | Purpose |
-|---------|---------|
+| --- | --- |
 | `tb start` | Human starts session, displays ID like `a7x` |
 | `tb info` | Agent probes pane to identify shell via observable behavior |
 | `tb run` | Agent runs synchronous command, waits for output |
@@ -99,6 +99,7 @@ The project uses a test ratchet system (`scripts/ratchet.py`) that enforces:
 3. **No silent removal**: Tests in `.test-status.json` must exist
 
 When adding a new test:
+
 1. Add the test code
 2. Add entry to `.test-status.json` as `"pending"`
 3. Commit: "Add failing test for X"
@@ -119,6 +120,7 @@ Use `./scripts/release.sh` as the primary release path.
 ```
 
 The script runs the full release flow in order:
+
 1. Runs `python3 scripts/ratchet.py`
 2. Updates `Cargo.toml`
 3. Runs `cargo build` to refresh `Cargo.lock`
@@ -135,6 +137,7 @@ Releases are automated via GitHub Actions when the tag is pushed.
 ### After Release
 
 Update the skill file in your opencode config if needed:
+
 ```bash
 curl -sLo ~/.config/opencode/skills/tmux-bridge/SKILL.md \
      https://maxeonyx.github.io/tmux-bridge/SKILL.md
@@ -157,15 +160,19 @@ tests/
 ## Implementation Details
 
 ### Session naming
+
 Sessions are named `tb-{id}` where id is `{letter}{random}{random}` (e.g., `tb-a7x`).
 
 ### Session resolution
+
 Commands use `--target TARGET` / `-t`. Simple names first try a literal tmux session, then fall back to `tb-{name}` for `tb start` compatibility. Targets containing tmux syntax (`:`, `.`, `%`) pass through unchanged.
 
 ### Command markers
+
 Format: `___START_$id___` and `___END_${id}_$exit_status___` where `$id` is random.
 
 ### Shell-adaptive wrappers
+
 `tb run` uses direct marker wrappers only when the agent explicitly declares the shell with `--shell`:
 
 - fish: `echo ___START_xxx___; <cmd>; echo ___END_xxx_{$status}___`
@@ -175,20 +182,23 @@ Format: `___START_$id___` and `___END_${id}_$exit_status___` where `$id` is rand
 The agent learns the shell from `tb info` (which probes via observable pane behavior only), then passes `--shell fish` (or `bash`, `sh`) to `tb run`. Without `--shell`, `tb run` uses the conservative `sh -c` fallback.
 
 ### Quoting principles
+
 The human sees every command typed into their terminal. Quoting must be **correct** and **minimal** — only add quotes/escapes that are strictly necessary.
 
 - **Single-arg mode (shell script):** A single argument after `--` is treated as shell code for the declared shell when `--shell` is given; otherwise it falls back to `sh -c '...'`. **Never** add your own `bash -c` wrapper just to get a shell script mode — that creates a redundant quoting layer. If you specifically want POSIX semantics in a fish pane, send `sh -c '...'` explicitly.
   - ✅ `tb run -- 'echo "hello"; ls -la'`
   - ❌ `tb run -- bash -c 'echo "hello"; ls -la'`
-- **Multi-arg mode:** Multiple arguments after `--` are each quoted individually with smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`). This also goes direct when `--shell` is given, and falls back to `sh -c` otherwise.
+- **Multi-arg mode:** Multiple arguments after `--` are each quoted individually with smart per-arg quoting — bare for shell-safe text, double quotes for whitespace/metacharacters, single quotes for literal shell symbols (`\ $ \` " !`). This also goes direct when `--shell`is given, and falls back to`sh -c` otherwise.
 - Markers (`___START_xxx___`) are alphanumeric + underscores — never quote them
 
 ### Timeout behavior
+
 1. No-output timeout (default 10s) - no new output for N seconds
 2. Overall timeout (default 120s) - total elapsed time
 3. Two-phase kill: SIGINT, wait 3s, SIGQUIT
 
 ### Background task layout
+
 - `tb launch` splits the targeted pane directly
 - Task accounting uses `@tb_task`-tagged panes only
 - Maximum 6 concurrent background tasks per target scope
