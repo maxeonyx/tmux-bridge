@@ -2,6 +2,10 @@
 
 This document is for AI coding assistants working on the tmux-bridge codebase. This tool is developed from the [agent-tools workspace](https://github.com/maxeonyx/agent-tools); clone and develop there, not from this repo directly.
 
+## TDD ratchet — read before testing
+
+Run `cargo ratchet`, not plain `cargo test`. A new test must be red when first introduced and committed as `pending`; that expected red test keeps CI green. A new test must not pass when first introduced—doing so makes the ratchet and CI red. Implement only after the red commit, then rerun the ratchet and commit the promotion to `passing`.
+
 ## Project Overview
 
 `tb` is a Rust CLI allowing AI agents to inject commands into an interactive terminal session controlled by a human user. Built on tmux.
@@ -45,7 +49,7 @@ The only reliable signal is **pane content** — what the human sees. tmux's loc
 cargo build
 
 # Run tests (96 tests defining behavior)
-cargo test
+cargo ratchet
 
 # Run specific test file
 cargo test --test start
