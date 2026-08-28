@@ -39,7 +39,7 @@ if git rev-parse "$tag" >/dev/null 2>&1; then
 fi
 
 printf 'Running test ratchet...\n'
-python3 scripts/ratchet.py
+cargo ratchet
 
 printf 'Updating Cargo.toml to %s...\n' "$version"
 sed -i -E "0,/^version = \"[0-9]+\.[0-9]+\.[0-9]+\"$/s//version = \"$version\"/" Cargo.toml

@@ -43,6 +43,9 @@ jobs:
           git clone --depth=1 https://github.com/maxeonyx/agent-tools ../../agent-tools-deps
           cp -R ../../agent-tools-deps/crates/agent-tools-updater ../../crates/agent-tools-updater
           cp -R ../../agent-tools-deps/crates/help-test ../../crates/help-test
+          mkdir -p ../../ratchet-install/tools ../../ratchet-install/crates
+          git clone --depth=1 https://github.com/maxeonyx/tdd-ratchet-rs ../../ratchet-install/tools/tdd-ratchet
+          cp -R ../../agent-tools-deps/crates/help-test ../../ratchet-install/crates/help-test
 
       - name: Enforce version bump on new main commits
         run: |
@@ -88,15 +91,13 @@ jobs:
       - name: Clippy
         run: cargo clippy -- -D warnings
 
-      - name: Run test ratchet
-        run: python3 scripts/ratchet.py
-
-      - name: Check status file unchanged
+      - name: Install cargo-ratchet
         run: |
-          if ! git diff --exit-code .test-status.json; then
-            echo "::error::Test status changed. Commit the updated .test-status.json"
-            exit 1
-          fi
+          cargo install --path ../../ratchet-install/tools/tdd-ratchet --locked
+          cargo install cargo-nextest --locked
+
+      - name: Run tests (ratchet)
+        run: cargo ratchet
 
   build:
     name: Build (${{ matrix.target }})
