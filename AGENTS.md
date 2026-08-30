@@ -1,6 +1,7 @@
 # Agent Instructions
 
-This document is for AI coding assistants working on the tmux-bridge codebase. This tool is developed from the [agent-tools workspace](https://github.com/maxeonyx/agent-tools); clone and develop there, not from this repo directly.
+This repository is self-contained for development. A standalone clone must
+build, test, and release without an `agent-tools` checkout.
 
 ## TDD ratchet — read before testing
 
