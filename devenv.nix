@@ -2,6 +2,7 @@
 
 {
   packages = [
+    pkgs.actionlint
     pkgs.cargo
     pkgs.clippy
     pkgs.curl
@@ -16,8 +17,9 @@
   ];
 
   enterTest = ''
+    actionlint
     cargo fmt --check
     cargo clippy -- -D warnings
-    cargo test
+    cargo ratchet
   '';
 }

@@ -7,6 +7,20 @@ build, test, and release without an `agent-tools` checkout.
 
 Run `cargo ratchet`, not plain `cargo test`. A new test must be red when first introduced and committed as `pending`; that expected red test keeps CI green. A new test must not pass when first introduced—doing so makes the ratchet and CI red. Implement only after the red commit, then rerun the ratchet and commit the promotion to `passing`.
 
+## Integration workflow
+
+Run `devenv test` before committing and pushing; it includes `actionlint`, so
+workflow syntax is checked offline. Source CI does not run on push. Open a pull
+request, merge current `main` into the feature branch, then explicitly dispatch:
+
+```bash
+gh workflow run ci.yml --ref <feature-branch> -f pr_number=<number>
+```
+
+The repository-serialized run records the required `Ready` check, builds the
+release artifacts, auto-merges the pull request, publishes those same artifacts,
+and records `integrated-ci` on the exact merge commit.
+
 ## Project Overview
 
 `tb` is a Rust CLI allowing AI agents to inject commands into an interactive terminal session controlled by a human user. Built on tmux.
