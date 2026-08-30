@@ -65,10 +65,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings
-      - name: Install test runners
-        run: |
-          cargo install --path "$RUNNER_TEMP/tdd-ratchet" --locked
-          cargo install cargo-nextest --locked
+      - uses: taiki-e/install-action@nextest
+      - name: Install cargo-ratchet
+        run: cargo install --path "$RUNNER_TEMP/tdd-ratchet" --locked
       - name: Run tests through the ratchet
         run: cargo ratchet
 
