@@ -2,7 +2,7 @@
 
 A CLI that lets AI agents run commands in your interactive terminal session.
 
-**Site:** https://maxeonyx.github.io/tmux-bridge/
+**Site:** https://tmux-bridge.maxeonyx.com
 
 ## Why?
 
@@ -67,7 +67,7 @@ For [OpenCode](https://opencode.ai) and compatible agents, install the skill:
 
 ```bash
 mkdir -p ~/.config/opencode/skills/tmux-bridge
-curl -sL https://maxeonyx.github.io/tmux-bridge/SKILL.md \
+curl -sL https://tmux-bridge.maxeonyx.com/SKILL.md \
   -o ~/.config/opencode/skills/tmux-bridge/SKILL.md
 ```
 
