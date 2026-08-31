@@ -937,8 +937,34 @@ fn cmd_launch(target: Option<String>, command: Vec<String>) -> Result<(), String
 
     let pane_target = String::from_utf8_lossy(&status.stdout).trim().to_string();
 
-    // Build the command to run in the task pane
-    let cmd_str = shell_command_text(&command);
+    // Build a command that records the real exit status using a random marker.
+    // The command itself runs in a child `sh`, so `exit`, syntax errors, and
+    // other early termination cannot skip the completion record.
+    let marker_id = random_marker_id();
+    let cmd_str = build_task_command(&command, &marker_id);
+
+    // Bind both identifiers to the pane before starting the command. The
+    // marker option lets `tb check` distinguish our completion record from
+    // arbitrary task output.
+    let task_option_status = Command::new("tmux")
+        .args(["set-option", "-p", "-t", &pane_target, "@tb_task", &task_id])
+        .status()
+        .map_err(|e| format!("Failed to identify task pane: {}", e))?;
+    let marker_option_status = Command::new("tmux")
+        .args([
+            "set-option",
+            "-p",
+            "-t",
+            &pane_target,
+            "@tb_task_marker",
+            &marker_id,
+        ])
+        .status()
+        .map_err(|e| format!("Failed to identify task pane: {}", e))?;
+
+    if !task_option_status.success() || !marker_option_status.success() {
+        return Err("Failed to identify task pane.".to_string());
+    }
 
     // Send the command to the new pane
     let status = Command::new("tmux")
@@ -950,12 +976,6 @@ fn cmd_launch(target: Option<String>, command: Vec<String>) -> Result<(), String
         return Err("Failed to send command to task pane.".to_string());
     }
 
-    // Set pane option to track task ID for later identification
-    // Using @tb_task as a custom pane option
-    let _ = Command::new("tmux")
-        .args(["set-option", "-p", "-t", &pane_target, "@tb_task", &task_id])
-        .status();
-
     println!("Task {} started.", task_id);
     println!(
         "Check status with: tb check --target {} {}",
@@ -963,6 +983,20 @@ fn cmd_launch(target: Option<String>, command: Vec<String>) -> Result<(), String
     );
 
     Ok(())
+}
+
+fn build_task_command(command: &[String], marker_id: &str) -> String {
+    let command_text = shell_command_text(command);
+    let encoded_command = encode_shell_bytes(&command_text);
+    let wrapper = format!(
+        "printf '%b' '{}' | sh; tb_status=$?; printf '\\n___TB_TASK_DONE_{}_%s___\\n' \"$tb_status\"; exit \"$tb_status\"",
+        encoded_command, marker_id
+    );
+
+    // Transport the wrapper through whichever interactive shell owns the
+    // pane, then use POSIX `sh` for predictable status handling.
+    let encoded_wrapper = encode_shell_bytes(&wrapper);
+    format!("printf '%b' '{}' | sh", encoded_wrapper)
 }
 
 fn next_task_id(task_panes: &[(String, String)]) -> Result<String, String> {
@@ -1009,18 +1043,24 @@ fn cmd_check(
     print_output(&pane_content, first, last);
 
     if let Some(task) = task.as_deref() {
-        report_task_check_status(task, &tmux_target, &pane_content);
+        let marker_id = task_marker_for_pane(&pane_id);
+        report_task_check_status(task, &tmux_target, &pane_content, marker_id.as_deref());
     }
 
     Ok(())
 }
 
-fn report_task_check_status(task: &str, tmux_target: &str, pane_content: &str) {
+fn report_task_check_status(
+    task: &str,
+    tmux_target: &str,
+    pane_content: &str,
+    marker_id: Option<&str>,
+) {
     if is_process_running(pane_content) {
         return;
     }
 
-    let exit_code = find_task_exit_code(pane_content);
+    let exit_code = marker_id.and_then(|marker_id| find_task_exit_code(pane_content, marker_id));
 
     println!();
     match exit_code {
@@ -1028,6 +1068,20 @@ fn report_task_check_status(task: &str, tmux_target: &str, pane_content: &str) {
         None => println!("Task {} appears complete.", task),
     }
     println!("Close pane with: tb done --target {} {}", tmux_target, task);
+}
+
+fn task_marker_for_pane(pane_id: &str) -> Option<String> {
+    let output = Command::new("tmux")
+        .args(["display-message", "-p", "-t", pane_id, "#{@tb_task_marker}"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let marker = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!marker.is_empty()).then_some(marker)
 }
 
 /// Check if a process is still running in a pane
@@ -1063,22 +1117,17 @@ fn is_process_running(pane_content: &str) -> bool {
     !has_prompt_ending
 }
 
-/// Try to find exit code from pane content
-fn find_task_exit_code(pane_content: &str) -> Option<i32> {
-    // Look for patterns like "exit 42" or shell-specific exit indicators
-    // This is very heuristic and may not work for all shells/commands
+/// Find the exact completion record for this task's random marker.
+fn find_task_exit_code(pane_content: &str, marker_id: &str) -> Option<i32> {
+    let prefix = format!("___TB_TASK_DONE_{}_", marker_id);
+
     for line in pane_content.lines().rev() {
-        // Look for "exit" followed by a number
-        if let Some(idx) = line.find("exit") {
-            let after = &line[idx + 4..];
-            let trimmed = after.trim_start();
-            if let Some(code) = trimmed
-                .split_whitespace()
-                .next()
-                .and_then(|s| s.parse::<i32>().ok())
-            {
-                return Some(code);
-            }
+        let record = line.trim();
+        if let Some(code) = record
+            .strip_prefix(&prefix)
+            .and_then(|record| record.strip_suffix("___"))
+        {
+            return code.parse::<i32>().ok();
         }
     }
     None

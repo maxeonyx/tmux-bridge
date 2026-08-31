@@ -9,6 +9,7 @@
     "tb::check$check_main_output::does_not_show_task_lifecycle_messages_for_main_pane": "passing",
     "tb::check$check_main_output::shows_main_pane_output_without_task_id": "passing",
     "tb::check$check_main_truncation::respects_first_and_last_flags_for_main_pane": "passing",
+    "tb::check$check_output::ordinary_exit_text_does_not_override_the_real_status": "passing",
     "tb::check$check_output::shows_complete_status_and_done_hint_for_finished_task": "passing",
     "tb::check$check_output::shows_exit_code_for_finished_task": "passing",
     "tb::check$check_output::shows_running_status_for_active_task": "passing",

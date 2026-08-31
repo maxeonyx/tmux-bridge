@@ -74,8 +74,7 @@ mod check_output {
         let task_id = session.launch_task(&["sh", "-c", "exit 42"]);
 
         session.wait_for_check_output(&task_id, |stdout| {
-            (stdout.contains("complete") || stdout.contains("finished"))
-                && (stdout.contains("42") || stdout.contains("exit"))
+            stdout.contains("finished with exit code 42")
         });
 
         session
@@ -83,7 +82,26 @@ mod check_output {
             .args(["check", "--target", session.target(), &task_id])
             .assert()
             .success()
-            .stdout(predicate::str::contains("42").or(predicate::str::contains("exit")));
+            .stdout(predicate::str::contains("finished with exit code 42"));
+    }
+
+    #[test]
+    fn ordinary_exit_text_does_not_override_the_real_status() {
+        let session = TestSession::new();
+
+        let task_id = session.launch_task(&["echo", "exit 42"]);
+
+        session.wait_for_check_output(&task_id, |stdout| {
+            stdout.contains("finished with exit code")
+        });
+
+        session
+            .tb_command()
+            .args(["check", "--target", session.target(), &task_id])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("finished with exit code 0"))
+            .stdout(predicate::str::contains("finished with exit code 42").not());
     }
 }
 
