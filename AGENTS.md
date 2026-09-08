@@ -74,9 +74,6 @@ cargo test --test done
 # Run with release optimizations
 cargo build --release
 
-# Run the test ratchet (CI uses this)
-python3 scripts/ratchet.py
-
 # Stress test for flakiness (run N times, report pass rate)
 ./scripts/stress-test.sh 20
 ```
@@ -108,49 +105,11 @@ tmux ls 2>/dev/null | grep -oE '^tb-[^:]*' | while read s; do tmux kill-session 
 
 Verify none remain with `tmux ls`.
 
-### Test Ratchet
-
-The project uses a test ratchet system (`scripts/ratchet.py`) that enforces:
-
-1. **TDD workflow**: New tests must be added as "pending" (failing) first, then promoted to "passing" in a separate commit
-2. **No regressions**: Once a test passes, it must keep passing
-3. **No silent removal**: Tests in `.test-status.json` must exist
-
-When adding a new test:
-
-1. Add the test code
-2. Add entry to `.test-status.json` as `"pending"`
-3. Commit: "Add failing test for X"
-4. Implement the fix
-5. Change status to `"passing"` in `.test-status.json`
-6. Commit: "Fix X"
-
 ## Releasing
 
-Use `./scripts/release.sh` as the primary release path.
+The dispatched integration run releases. It tags the merge commit and attaches the artifacts it already built, so a tag never exists before the code it names is on `main`.
 
-```bash
-# Auto-bump the patch version from Cargo.toml
-./scripts/release.sh
-
-# Or release an explicit version
-./scripts/release.sh 0.1.5
-```
-
-The script runs the full release flow in order:
-
-1. Runs `python3 scripts/ratchet.py`
-2. Updates `Cargo.toml`
-3. Runs `cargo build` to refresh `Cargo.lock`
-4. Commits `Bump version to v{version}`
-5. Tags `v{version}`
-6. Pushes the commit and tags
-7. Runs `cargo install --path .`
-8. Prints the released version and local install path
-
-Releases are automated via GitHub Actions when the tag is pushed.
-
-**Always bump the version and tag a release** after merging behavioral changes (features, bug fixes, quoting changes). Don't leave unreleased work sitting on main.
+Bump `Cargo.toml`, `Cargo.lock` and `docs/version.json` together in the pull request; the Ready job rejects a version whose release tag already exists. Every integration run releases, so every pull request carries a version bump.
 
 ### After Release
 
