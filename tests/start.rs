@@ -120,30 +120,21 @@ impl Drop for RunnerSession {
 fn run_tb_start_in_tmux_with_env(args: &[&str], env: &[(&str, &str)]) -> (bool, String) {
     let runner = RunnerSession::new();
 
-    // Build the tb command with optional env vars
+    // The runner session's shell inherits the tmux *server's* environment, and
+    // the server is started by whichever process first talked to tmux — in a
+    // test run, another test's `tb`, carrying its TB_TEST_MODE and its own
+    // TB_SESSION_PREFIX. Clear both so this call runs with exactly the
+    // environment the test asked for, whoever started the server.
     let tb_path = assert_cmd::cargo::cargo_bin("tb");
-    let env_prefix = env
-        .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    let tb_cmd = if env.is_empty() {
-        if args.is_empty() {
-            format!("{} start", tb_path.display())
-        } else {
-            format!("{} start {}", tb_path.display(), args.join(" "))
-        }
-    } else if args.is_empty() {
-        format!("{} {} start", env_prefix, tb_path.display())
-    } else {
-        format!(
-            "{} {} start {}",
-            env_prefix,
-            tb_path.display(),
-            args.join(" ")
-        )
-    };
+    let mut tb_cmd = String::from("env -u TB_TEST_MODE -u TB_SESSION_PREFIX");
+    for (key, value) in env {
+        tb_cmd.push_str(&format!(" {}={}", key, value));
+    }
+    tb_cmd.push_str(&format!(" {} start", tb_path.display()));
+    for arg in args {
+        tb_cmd.push(' ');
+        tb_cmd.push_str(arg);
+    }
 
     // Send the command to the tmux session
     runner.send_keys(&tb_cmd);

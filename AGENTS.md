@@ -92,6 +92,8 @@ Tests are real E2E tests using real tmux sessions. The key principle: **never us
 
 When adding new tests: use these helpers instead of `thread::sleep`. If a new wait pattern is needed, add it to `tests/common/mod.rs`.
 
+Tests that drive `tb` from inside a tmux pane must set the environment they need explicitly, with `env -u`, because a pane's shell inherits the tmux **server's** environment and the server belongs to whichever process first talked to tmux. In a test run that is another test's `tb`, carrying its `TB_TEST_MODE` and its own `TB_SESSION_PREFIX`. On a developer machine the server is usually older than the run and carries neither, which is how two `tb start` prefix tests passed locally for weeks while failing in CI.
+
 ### TODO: test runs leak tmux sessions on crash/interrupt
 
 tb test runs leak tmux sessions (prefix `tb-help-*` and other `tb-*` test prefixes) whenever a test crashes, times out, or an agent interrupts the run. The harness cleans up on the happy path but not when a run is killed mid-flight, so leaked sessions pile up and confuse later runs. This is a recurring, real annoyance (e.g. left six `tb-help-run-*` / `tb-help-launch-*` sessions alive after one interrupted ratchet run).
