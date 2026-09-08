@@ -1,0 +1,187 @@
+name: Trusted test-status ledger
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: ledger-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the reviewed ratchet source
+        uses: actions/checkout@v6
+        with:
+          repository: maxeonyx/tdd-ratchet-rs
+          ref: v1.1.6
+          path: trusted-ratchet-source
+          persist-credentials: false
+
+      - name: Check out the pull-request head without credentials
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pull-request
+          persist-credentials: false
+
+      - name: Reject ordinary ledger edits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+        working-directory: pull-request
+        run: |
+          git fetch --no-tags origin "$BASE_SHA"
+          while read -r commit; do
+            changed=$(git diff-tree --no-commit-id --name-only -r "$commit")
+            if grep -qx '.test-status.json' <<<"$changed"; then
+              test "$changed" = '.test-status.json'
+              test "$(gh api "repos/$REPOSITORY/commits/$commit" --jq '.commit.verification.verified')" = true
+              test "$(gh api "repos/$REPOSITORY/commits/$commit" --jq '.author.login')" = 'github-actions[bot]'
+              test "$(gh api "repos/$REPOSITORY/commits/$commit" --jq '.committer.login')" = 'web-flow'
+            fi
+          done < <(git rev-list "$BASE_SHA..$HEAD_SHA")
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Build the base-controlled ratchet
+        run: cargo build --release --manifest-path trusted-ratchet-source/Cargo.toml
+
+      - name: Produce the proposed ledger
+        working-directory: pull-request
+        run: ../trusted-ratchet-source/target/release/cargo-ratchet
+
+      - name: Upload only the proposed ledger
+        uses: actions/upload-artifact@v7
+        with:
+          name: proposed-test-status
+          path: pull-request/.test-status.json
+          if-no-files-found: error
+          include-hidden-files: true
+
+  write:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Download the ratchet-produced ledger
+        uses: actions/download-artifact@v8
+        with:
+          name: proposed-test-status
+          path: ledger-output
+
+      - name: Validate and commit only the ledger
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          ledger='ledger-output/.test-status.json'
+          test -f "$ledger"
+          test "$(find ledger-output -type f | wc -l)" -eq 1
+          jq -e '
+            (keys - ["\u0024schema", "tests", "checks", "renames"] | length) == 0 and
+            (.tests | type == "object") and
+            (all(.tests[]; . == "pending" or . == "passing")) and
+            (has("removals") | not) and
+            (has("baseline") | not)
+          ' "$ledger" >/dev/null
+
+          current_head=$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json headRefOid --jq .headRefOid)
+          test "$current_head" = "$HEAD_SHA"
+
+          gh api "repos/$REPOSITORY/contents/.test-status.json?ref=$HEAD_SHA" --jq .content \
+            | tr -d '\n' | base64 --decode >previous-ledger.json
+          if ! gh api "repos/$REPOSITORY/contents/.tdd-ratchet.json?ref=$HEAD_SHA" --jq .content \
+            | tr -d '\n' | base64 --decode >instructions.json; then
+            echo '{}' >instructions.json
+          fi
+
+          # Re-establish the semantic ledger transition in the privileged job.
+          # The artifact was produced while untrusted pull-request code ran, so
+          # JSON shape alone is not a trust boundary.
+          jq -e --slurpfile previous previous-ledger.json \
+            --slurpfile instructions instructions.json '
+            . as $next
+            | $previous[0] as $old
+            | $instructions[0] as $cfg
+            | ($cfg.renames // {}) as $renames
+            | ($cfg.removals // []) as $removals
+            | def transition_ok($from; $to):
+                ($from == "pending" and ($to == "pending" or $to == "passing"))
+                or ($from == "passing" and $to == "passing");
+              def renamed_to($old_name):
+                [$renames | to_entries[] | select(.value == $old_name) | .key];
+              (($cfg | keys - ["renames", "removals"] | length) == 0)
+            and (($renames | type) == "object")
+            and (($removals | type) == "array")
+            and (($next.renames // {}) == $renames)
+            and all($old.tests | to_entries[];
+              . as $entry
+              | if (($next.tests | has($entry.key)) and
+                    $entry.value == "passing" and
+                    $next.tests[$entry.key] == "pending")
+                then error("passing tests cannot be downgraded")
+                elif ($next.tests | has($entry.key))
+                then transition_ok($entry.value; $next.tests[$entry.key])
+                elif (renamed_to($entry.key) | length) == 1
+                then (renamed_to($entry.key)[0]) as $new_name
+                  | ($next.tests | has($new_name))
+                  and transition_ok($entry.value; $next.tests[$new_name])
+                elif ($removals | index($entry.key)) != null
+                then true
+                else error("removed tests require an instruction")
+                end)
+            and all($next.tests | to_entries[];
+              . as $entry
+              | if ($old.tests | has($entry.key))
+                then transition_ok($old.tests[$entry.key]; $entry.value)
+                elif ($renames | has($entry.key))
+                then ($renames[$entry.key]) as $old_name
+                  | ($old.tests | has($old_name))
+                  and transition_ok($old.tests[$old_name]; $entry.value)
+                elif $entry.value == "pending" or ($entry.key | endswith("tdd_ratchet_gatekeeper"))
+                then true
+                else error("new tests must enter pending")
+                end)
+            and all($removals[];
+              . as $removed
+              | ($old.tests | has($removed))
+              and ($next.tests | has($removed) | not)
+              and ([ $renames[] ] | index($removed) | not))
+          ' "$ledger" >/dev/null
+
+          content=$(base64 -w0 "$ledger")
+          blob_sha=$(gh api -X POST "repos/$REPOSITORY/git/blobs" \
+            -f content="$content" -f encoding=base64 --jq .sha)
+          head_tree=$(gh api "repos/$REPOSITORY/git/commits/$HEAD_SHA" --jq .tree.sha)
+          tree_sha=$(jq -n --arg base "$head_tree" --arg blob "$blob_sha" '{
+            base_tree: $base,
+            tree: [{path: ".test-status.json", mode: "100644", type: "blob", sha: $blob}]
+          }' | gh api -X POST "repos/$REPOSITORY/git/trees" --input - --jq .sha)
+          commit_sha=$(jq -n --arg tree "$tree_sha" --arg head_sha "$HEAD_SHA" '{
+            message: "chore: record tdd-ratchet status [skip ci]",
+            tree: $tree,
+            parents: [$head_sha]
+          }' | gh api -X POST "repos/$REPOSITORY/git/commits" --input - --jq .sha)
+          gh api -X PATCH "repos/$REPOSITORY/git/refs/heads/$HEAD_REF" \
+            -f sha="$commit_sha" -F force=false >/dev/null

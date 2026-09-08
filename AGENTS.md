@@ -4,7 +4,9 @@ This repository is self-contained for development. A standalone clone must build
 
 ## TDD ratchet — read before testing
 
-Run `cargo ratchet`, not plain `cargo test`. A new test must be red when first introduced and committed as `pending`; that expected red test keeps CI green. A new test must not pass when first introduced—doing so makes the ratchet and CI red. Implement only after the red commit, then rerun the ratchet and commit the promotion to `passing`.
+Run `cargo ratchet`, not plain `cargo test`. A new test must be red when first introduced and committed as `pending`; that expected red test keeps CI green. A new test must not pass when first introduced—doing so makes the ratchet and CI red. Push the red implementation commit, then wait for the trusted ledger workflow's ledger-only bot commit before implementing the fix. After implementation, rerun the ratchet, push the green commit, and again wait for the bot commit that records the promotion to `passing`.
+
+`.test-status.json` is that bot's output. Never edit it by hand: the trusted ledger workflow rejects any pull request whose ledger changes come from an ordinary commit.
 
 ## Integration workflow
 
