@@ -4,6 +4,7 @@
   packages = [
     pkgs.actionlint
     pkgs.cargo
+    pkgs.cargo-nextest
     pkgs.clippy
     pkgs.curl
     pkgs.fish

@@ -4,7 +4,9 @@ This repository is self-contained for development. A standalone clone must build
 
 ## TDD ratchet — read before testing
 
-Run `cargo ratchet`, not plain `cargo test`. A new test must be red when first introduced and committed as `pending`; that expected red test keeps CI green. A new test must not pass when first introduced—doing so makes the ratchet and CI red. Implement only after the red commit, then rerun the ratchet and commit the promotion to `passing`.
+Run `cargo ratchet`, not plain `cargo test`. A new test must be red when first introduced and committed as `pending`; that expected red test keeps CI green. A new test must not pass when first introduced—doing so makes the ratchet and CI red. Push the red implementation commit, then wait for the trusted ledger workflow's ledger-only bot commit before implementing the fix. After implementation, rerun the ratchet, push the green commit, and again wait for the bot commit that records the promotion to `passing`.
+
+`.test-status.json` is that bot's output. Never edit it by hand: the trusted ledger workflow rejects any pull request whose ledger changes come from an ordinary commit.
 
 ## Integration workflow
 
@@ -72,9 +74,6 @@ cargo test --test done
 # Run with release optimizations
 cargo build --release
 
-# Run the test ratchet (CI uses this)
-python3 scripts/ratchet.py
-
 # Stress test for flakiness (run N times, report pass rate)
 ./scripts/stress-test.sh 20
 ```
@@ -92,6 +91,8 @@ Tests are real E2E tests using real tmux sessions. The key principle: **never us
 
 When adding new tests: use these helpers instead of `thread::sleep`. If a new wait pattern is needed, add it to `tests/common/mod.rs`.
 
+Tests that drive `tb` from inside a tmux pane must set the environment they need explicitly, with `env -u`, because a pane's shell inherits the tmux **server's** environment and the server belongs to whichever process first talked to tmux. In a test run that is another test's `tb`, carrying its `TB_TEST_MODE` and its own `TB_SESSION_PREFIX`. On a developer machine the server is usually older than the run and carries neither, which is how two `tb start` prefix tests passed locally for weeks while failing in CI.
+
 ### TODO: test runs leak tmux sessions on crash/interrupt
 
 tb test runs leak tmux sessions (prefix `tb-help-*` and other `tb-*` test prefixes) whenever a test crashes, times out, or an agent interrupts the run. The harness cleans up on the happy path but not when a run is killed mid-flight, so leaked sessions pile up and confuse later runs. This is a recurring, real annoyance (e.g. left six `tb-help-run-*` / `tb-help-launch-*` sessions alive after one interrupted ratchet run).
@@ -104,49 +105,11 @@ tmux ls 2>/dev/null | grep -oE '^tb-[^:]*' | while read s; do tmux kill-session 
 
 Verify none remain with `tmux ls`.
 
-### Test Ratchet
-
-The project uses a test ratchet system (`scripts/ratchet.py`) that enforces:
-
-1. **TDD workflow**: New tests must be added as "pending" (failing) first, then promoted to "passing" in a separate commit
-2. **No regressions**: Once a test passes, it must keep passing
-3. **No silent removal**: Tests in `.test-status.json` must exist
-
-When adding a new test:
-
-1. Add the test code
-2. Add entry to `.test-status.json` as `"pending"`
-3. Commit: "Add failing test for X"
-4. Implement the fix
-5. Change status to `"passing"` in `.test-status.json`
-6. Commit: "Fix X"
-
 ## Releasing
 
-Use `./scripts/release.sh` as the primary release path.
+The dispatched integration run releases. It tags the merge commit and attaches the artifacts it already built, so a tag never exists before the code it names is on `main`.
 
-```bash
-# Auto-bump the patch version from Cargo.toml
-./scripts/release.sh
-
-# Or release an explicit version
-./scripts/release.sh 0.1.5
-```
-
-The script runs the full release flow in order:
-
-1. Runs `python3 scripts/ratchet.py`
-2. Updates `Cargo.toml`
-3. Runs `cargo build` to refresh `Cargo.lock`
-4. Commits `Bump version to v{version}`
-5. Tags `v{version}`
-6. Pushes the commit and tags
-7. Runs `cargo install --path .`
-8. Prints the released version and local install path
-
-Releases are automated via GitHub Actions when the tag is pushed.
-
-**Always bump the version and tag a release** after merging behavioral changes (features, bug fixes, quoting changes). Don't leave unreleased work sitting on main.
+Bump `Cargo.toml`, `Cargo.lock` and `docs/version.json` together in the pull request; the Ready job rejects a version whose release tag already exists. Every integration run releases, so every pull request carries a version bump.
 
 ### After Release
 
