@@ -100,10 +100,10 @@ tb test runs leak tmux sessions (prefix `tb-help-*` and other `tb-*` test prefix
 **TODO — make cleanup crash-proof:** the test harness should reap any session matching its scoped prefix even after an aborted/panicking run (e.g. a pre-run sweep of stale test-prefixed sessions, and/or a more robust drop/`atexit`-style guard). Until that's fixed, manually sweep after ANY `cargo ratchet` / `cargo nextest` run:
 
 ```bash
-tmux ls 2>/dev/null | grep -oE '^tb-[^:]*' | while read s; do tmux kill-session -t "$s"; done
+tmux ls 2>/dev/null | grep -oE '^(tbtest-|tb-help-|tb-test-runner-)[^:]*' | while read s; do tmux kill-session -t "$s"; done
 ```
 
-Verify none remain with `tmux ls`.
+Match only the test prefixes. Real sessions are named `tb-<id>`, so a sweep of `^tb-` also kills the user's live sessions, including the one an agent may be running in. Verify with `tmux ls` that no test-prefixed sessions remain.
 
 ## Releasing
 
